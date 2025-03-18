@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.5](https://github.com/bluealloy/revm/compare/op-revm-v1.0.0-alpha.4...op-revm-v1.0.0-alpha.5) - 2025-03-16
+
+### Added
+
+- *(docs)* MyEvm example and book cleanup ([#2218](https://github.com/bluealloy/revm/pull/2218))
+- add test for calling `bn128_pair` before and after granite ([#2200](https://github.com/bluealloy/revm/pull/2200))
+
+### Other
+
+- *(op-precompiles)* Add test for calling g1 add ([#2205](https://github.com/bluealloy/revm/pull/2205))
+- *(op-test)* Clean up precompile tests ([#2206](https://github.com/bluealloy/revm/pull/2206))
+- fix typo in method name ([#2202](https://github.com/bluealloy/revm/pull/2202))
+- Add tests for checking fjord precompile activation ([#2199](https://github.com/bluealloy/revm/pull/2199))
+
+## [1.0.0-alpha.4](https://github.com/bluealloy/revm/compare/op-revm-v1.0.0-alpha.3...op-revm-v1.0.0-alpha.4) - 2025-03-12
+
+### Added
+
+- Add tx/block to EvmExecution trait ([#2195](https://github.com/bluealloy/revm/pull/2195))
+- rename inspect_previous to inspect_replay ([#2194](https://github.com/bluealloy/revm/pull/2194))
+
+### Other
+
+- add debug to precompiles type ([#2193](https://github.com/bluealloy/revm/pull/2193))
+
+## [1.0.0-alpha.3](https://github.com/bluealloy/revm/compare/op-revm-v1.0.0-alpha.2...op-revm-v1.0.0-alpha.3) - 2025-03-11
+
+### Fixed
+
+- fix(op) enable proper precompiles p256 ([#2186](https://github.com/bluealloy/revm/pull/2186))
+- *(op)* fix inspection call ([#2184](https://github.com/bluealloy/revm/pull/2184))
+- correct propagate features ([#2177](https://github.com/bluealloy/revm/pull/2177))
+
+### Other
+
+- remove CTX phantomdata from precompile providers ([#2178](https://github.com/bluealloy/revm/pull/2178))
+
+## [1.0.0-alpha.2](https://github.com/bluealloy/revm/compare/op-revm-v1.0.0-alpha.1...op-revm-v1.0.0-alpha.2) - 2025-03-10
+
+### Other
+
+- updated the following local packages: revm
+
 ## [1.0.0-alpha.1](https://github.com/bluealloy/revm/releases/tag/revm-optimism-v1.0.0-alpha.1) - 2025-02-16
 
 ### Added

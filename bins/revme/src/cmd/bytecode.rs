@@ -1,8 +1,7 @@
 use clap::Parser;
 use revm::{
     bytecode::eof::{self, validate_eof_inner, CodeType, Eof, EofError},
-    primitives::{hex, Bytes},
-    specification::constants::MAX_INITCODE_SIZE,
+    primitives::{constants::MAX_INITCODE_SIZE, hex, Bytes},
 };
 use std::io;
 
@@ -39,9 +38,9 @@ impl Cmd {
     /// Runs statetest command.
     pub fn run(&self) {
         let container_kind = if self.eof_initcode {
-            Some(CodeType::ReturnContract)
+            Some(CodeType::Initcode)
         } else if self.eof_runtime {
-            Some(CodeType::ReturnOrStop)
+            Some(CodeType::Runtime)
         } else {
             None
         };

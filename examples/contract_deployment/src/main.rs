@@ -2,13 +2,13 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use anyhow::{anyhow, bail};
-use database::CacheDB;
 use revm::{
     bytecode::opcode,
     context::Context,
     context_interface::result::{ExecutionResult, Output},
+    database::CacheDB,
     database_interface::EmptyDB,
-    handler::handler::EvmTr,
+    handler::EvmTr,
     primitives::{hex, Bytes, TxKind, U256},
     ExecuteCommitEvm, ExecuteEvm, MainBuilder, MainContext,
 };
@@ -58,7 +58,7 @@ fn main() -> anyhow::Result<()> {
     let mut evm = ctx.build_mainnet();
 
     println!("bytecode: {}", hex::encode(bytecode));
-    let ref_tx = evm.transact_commit_previous()?;
+    let ref_tx = evm.replay_commit()?;
     let ExecutionResult::Success {
         output: Output::Create(_, Some(address)),
         ..
@@ -74,7 +74,7 @@ fn main() -> anyhow::Result<()> {
         tx.nonce += 1;
     });
 
-    let result = evm.transact_previous()?;
+    let result = evm.replay()?;
     let Some(storage0) = result
         .state
         .get(&address)

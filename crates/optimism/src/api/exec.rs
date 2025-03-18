@@ -2,81 +2,90 @@ use crate::{
     evm::OpEvm, handler::OpHandler, transaction::OpTxTr, L1BlockInfo, OpHaltReason, OpSpecId,
     OpTransactionError,
 };
-use inspector::{InspectCommitEvm, InspectEvm, Inspector, JournalExt};
-use precompile::Log;
 use revm::{
+    context::{ContextSetters, JournalOutput},
     context_interface::{
         result::{EVMError, ExecutionResult, ResultAndState},
-        Block, Cfg, ContextTr, Database, Journal,
+        Cfg, ContextTr, Database, JournalTr,
     },
-    handler::{handler::EvmTr, instructions::EthInstructions, EthFrame, Handler},
-    interpreter::interpreter::EthInterpreter,
-    state::EvmState,
-    Context, DatabaseCommit, ExecuteCommitEvm, ExecuteEvm,
+    handler::{instructions::EthInstructions, EthFrame, EvmTr, Handler, PrecompileProvider},
+    inspector::{InspectCommitEvm, InspectEvm, Inspector, InspectorHandler, JournalExt},
+    interpreter::{interpreter::EthInterpreter, InterpreterResult},
+    DatabaseCommit, ExecuteCommitEvm, ExecuteEvm,
 };
-use std::vec::Vec;
 
-impl<BLOCK, TX, CFG, DB, JOURNAL, INSP> ExecuteEvm
-    for OpEvm<
-        Context<BLOCK, TX, CFG, DB, JOURNAL, L1BlockInfo>,
-        INSP,
-        EthInstructions<EthInterpreter, Context<BLOCK, TX, CFG, DB, JOURNAL, L1BlockInfo>>,
-    >
-where
-    BLOCK: Block,
-    TX: OpTxTr,
-    CFG: Cfg<Spec = OpSpecId>,
-    DB: Database,
-    JOURNAL: Journal<Database = DB, FinalOutput = (EvmState, Vec<Log>)>,
+// Type alias for Optimism context
+pub trait OpContextTr:
+    ContextTr<
+    Journal: JournalTr<FinalOutput = JournalOutput>,
+    Tx: OpTxTr,
+    Cfg: Cfg<Spec = OpSpecId>,
+    Chain = L1BlockInfo,
+>
 {
-    type Output =
-        Result<ResultAndState<OpHaltReason>, EVMError<<DB as Database>::Error, OpTransactionError>>;
+}
 
-    fn transact_previous(&mut self) -> Self::Output {
+impl<T> OpContextTr for T where
+    T: ContextTr<
+        Journal: JournalTr<FinalOutput = JournalOutput>,
+        Tx: OpTxTr,
+        Cfg: Cfg<Spec = OpSpecId>,
+        Chain = L1BlockInfo,
+    >
+{
+}
+
+/// Type alias for the error type of the OpEvm.
+type OpError<CTX> = EVMError<<<CTX as ContextTr>::Db as Database>::Error, OpTransactionError>;
+
+impl<CTX, INSP, PRECOMPILE> ExecuteEvm
+    for OpEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, PRECOMPILE>
+where
+    CTX: OpContextTr + ContextSetters,
+    PRECOMPILE: PrecompileProvider<CTX, Output = InterpreterResult>,
+{
+    type Output = Result<ResultAndState<OpHaltReason>, OpError<CTX>>;
+
+    type Tx = <CTX as ContextTr>::Tx;
+
+    type Block = <CTX as ContextTr>::Block;
+
+    fn set_tx(&mut self, tx: Self::Tx) {
+        self.0.data.ctx.set_tx(tx);
+    }
+
+    fn set_block(&mut self, block: Self::Block) {
+        self.0.data.ctx.set_block(block);
+    }
+
+    fn replay(&mut self) -> Self::Output {
         let mut h = OpHandler::<_, _, EthFrame<_, _, _>>::new();
         h.run(self)
     }
 }
 
-impl<BLOCK, TX, CFG, DB, JOURNAL, INSP> ExecuteCommitEvm
-    for OpEvm<
-        Context<BLOCK, TX, CFG, DB, JOURNAL, L1BlockInfo>,
-        INSP,
-        EthInstructions<EthInterpreter, Context<BLOCK, TX, CFG, DB, JOURNAL, L1BlockInfo>>,
-    >
+impl<CTX, INSP, PRECOMPILE> ExecuteCommitEvm
+    for OpEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, PRECOMPILE>
 where
-    BLOCK: Block,
-    TX: OpTxTr,
-    CFG: Cfg<Spec = OpSpecId>,
-    DB: Database + DatabaseCommit,
-    JOURNAL: Journal<Database = DB, FinalOutput = (EvmState, Vec<Log>)> + JournalExt,
+    CTX: OpContextTr<Db: DatabaseCommit> + ContextSetters,
+    PRECOMPILE: PrecompileProvider<CTX, Output = InterpreterResult>,
 {
-    type CommitOutput = Result<
-        ExecutionResult<OpHaltReason>,
-        EVMError<<DB as Database>::Error, OpTransactionError>,
-    >;
+    type CommitOutput = Result<ExecutionResult<OpHaltReason>, OpError<CTX>>;
 
-    fn transact_commit_previous(&mut self) -> Self::CommitOutput {
-        self.transact_previous().map(|r| {
+    fn replay_commit(&mut self) -> Self::CommitOutput {
+        self.replay().map(|r| {
             self.ctx().db().commit(r.state);
             r.result
         })
     }
 }
 
-impl<BLOCK, TX, CFG, DB, JOURNAL, INSP> InspectEvm
-    for OpEvm<
-        Context<BLOCK, TX, CFG, DB, JOURNAL, L1BlockInfo>,
-        INSP,
-        EthInstructions<EthInterpreter, Context<BLOCK, TX, CFG, DB, JOURNAL, L1BlockInfo>>,
-    >
+impl<CTX, INSP, PRECOMPILE> InspectEvm
+    for OpEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, PRECOMPILE>
 where
-    BLOCK: Block,
-    TX: OpTxTr,
-    CFG: Cfg<Spec = OpSpecId>,
-    DB: Database,
-    JOURNAL: Journal<Database = DB, FinalOutput = (EvmState, Vec<Log>)> + JournalExt,
-    INSP: Inspector<Context<BLOCK, TX, CFG, DB, JOURNAL, L1BlockInfo>, EthInterpreter>,
+    CTX: OpContextTr<Journal: JournalExt> + ContextSetters,
+    INSP: Inspector<CTX, EthInterpreter>,
+    PRECOMPILE: PrecompileProvider<CTX, Output = InterpreterResult>,
 {
     type Inspector = INSP;
 
@@ -84,28 +93,21 @@ where
         self.0.data.inspector = inspector;
     }
 
-    fn inspect_previous(&mut self) -> Self::Output {
+    fn inspect_replay(&mut self) -> Self::Output {
         let mut h = OpHandler::<_, _, EthFrame<_, _, _>>::new();
-        h.run(self)
+        h.inspect_run(self)
     }
 }
 
-impl<BLOCK, TX, CFG, DB, JOURNAL, INSP> InspectCommitEvm
-    for OpEvm<
-        Context<BLOCK, TX, CFG, DB, JOURNAL, L1BlockInfo>,
-        INSP,
-        EthInstructions<EthInterpreter, Context<BLOCK, TX, CFG, DB, JOURNAL, L1BlockInfo>>,
-    >
+impl<CTX, INSP, PRECOMPILE> InspectCommitEvm
+    for OpEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, PRECOMPILE>
 where
-    BLOCK: Block,
-    TX: OpTxTr,
-    CFG: Cfg<Spec = OpSpecId>,
-    DB: Database + DatabaseCommit,
-    JOURNAL: Journal<Database = DB, FinalOutput = (EvmState, Vec<Log>)> + JournalExt,
-    INSP: Inspector<Context<BLOCK, TX, CFG, DB, JOURNAL, L1BlockInfo>, EthInterpreter>,
+    CTX: OpContextTr<Journal: JournalExt, Db: DatabaseCommit> + ContextSetters,
+    INSP: Inspector<CTX, EthInterpreter>,
+    PRECOMPILE: PrecompileProvider<CTX, Output = InterpreterResult>,
 {
     fn inspect_commit_previous(&mut self) -> Self::CommitOutput {
-        self.inspect_previous().map(|r| {
+        self.inspect_replay().map(|r| {
             self.ctx().db().commit(r.state);
             r.result
         })

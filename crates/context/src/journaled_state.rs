@@ -1,17 +1,23 @@
-use bytecode::{Bytecode, EOF_MAGIC_BYTES, EOF_MAGIC_HASH};
-use context_interface::journaled_state::{AccountLoad, Journal, JournalCheckpoint, TransferError};
-use database_interface::Database;
-use interpreter::{SStoreResult, SelfDestructResult, StateLoad};
-use primitives::{
-    hash_map::Entry, Address, Bytes, HashMap, HashSet, Log, B256, KECCAK_EMPTY, PRECOMPILE3, U256,
+mod entry;
+mod init;
+
+pub use entry::{JournalEntry, JournalEntryTr};
+pub use init::JournalInit;
+
+use bytecode::Bytecode;
+use context_interface::{
+    context::{SStoreResult, SelfDestructResult, StateLoad},
+    journaled_state::{AccountLoad, JournalCheckpoint, JournalTr, TransferError},
 };
-use specification::hardfork::{SpecId, SpecId::*};
-use state::{Account, EvmState, EvmStorageSlot, TransientStorage};
-
 use core::mem;
+use database_interface::Database;
+use primitives::{
+    hardfork::{SpecId, SpecId::*},
+    hash_map::Entry,
+    Address, HashMap, HashSet, Log, B256, KECCAK_EMPTY, U256,
+};
+use state::{Account, EvmState, EvmStorageSlot, TransientStorage};
 use std::{vec, vec::Vec};
-
-use crate::JournalInit;
 
 /// A journal of state changes internal to the EVM
 ///
@@ -20,7 +26,10 @@ use crate::JournalInit;
 /// The journal contains every state change that happens within that call, making it possible to revert changes made in a specific call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct JournaledState<DB> {
+pub struct Journal<DB, ENTRY = JournalEntry>
+where
+    ENTRY: JournalEntryTr,
+{
     /// Database
     pub database: DB,
     /// The current state
@@ -34,7 +43,7 @@ pub struct JournaledState<DB> {
     /// The current call stack depth
     pub depth: usize,
     /// The journal of state changes, one for each call
-    pub journal: Vec<Vec<JournalEntry>>,
+    pub journal: Vec<Vec<ENTRY>>,
     /// The spec ID for the EVM
     ///
     /// This spec is used for two things:
@@ -56,12 +65,19 @@ pub struct JournaledState<DB> {
     pub precompiles: HashSet<Address>,
 }
 
-impl<DB: Database> Journal for JournaledState<DB> {
-    type Database = DB;
-    // TODO : Make a struck here.
-    type FinalOutput = (EvmState, Vec<Log>);
+/// Output of the journal after finalizing.
+pub struct JournalOutput {
+    /// Changes or touched accounts that loads, created or changed in the journal.
+    pub state: EvmState,
+    /// Logs that were emitted by contract calls.
+    pub logs: Vec<Log>,
+}
 
-    fn new(database: DB) -> JournaledState<DB> {
+impl<DB: Database, ENTRY: JournalEntryTr> JournalTr for Journal<DB, ENTRY> {
+    type Database = DB;
+    type FinalOutput = JournalOutput;
+
+    fn new(database: DB) -> Journal<DB, ENTRY> {
         Self::new(SpecId::LATEST, database)
     }
 
@@ -142,20 +158,6 @@ impl<DB: Database> Journal for JournaledState<DB> {
 
     fn set_spec_id(&mut self, spec_id: SpecId) {
         self.spec = spec_id;
-    }
-
-    fn code(
-        &mut self,
-        address: Address,
-    ) -> Result<StateLoad<primitives::Bytes>, <Self::Database as Database>::Error> {
-        self.code(address)
-    }
-
-    fn code_hash(
-        &mut self,
-        address: Address,
-    ) -> Result<StateLoad<B256>, <Self::Database as Database>::Error> {
-        self.code_hash(address)
     }
 
     fn transfer(
@@ -250,11 +252,11 @@ impl<DB: Database> Journal for JournaledState<DB> {
         let state = mem::take(state);
         let logs = mem::take(logs);
 
-        (state, logs)
+        JournalOutput { state, logs }
     }
 }
 
-impl<DB: Database> JournaledState<DB> {
+impl<DB: Database, ENTRY: JournalEntryTr> Journal<DB, ENTRY> {
     /// Creates new JournaledState.
     ///
     /// `warm_preloaded_addresses` is used to determine if address is considered warm loaded.
@@ -263,7 +265,7 @@ impl<DB: Database> JournaledState<DB> {
     /// # Note
     /// This function will journal state after Spurious Dragon fork.
     /// And will not take into account if account is not existing or empty.
-    pub fn new(spec: SpecId, database: DB) -> JournaledState<DB> {
+    pub fn new(spec: SpecId, database: DB) -> Journal<DB, ENTRY> {
         Self {
             database,
             state: HashMap::default(),
@@ -301,9 +303,9 @@ impl<DB: Database> JournaledState<DB> {
 
     /// Mark account as touched.
     #[inline]
-    fn touch_account(journal: &mut Vec<JournalEntry>, address: &Address, account: &mut Account) {
+    fn touch_account(journal: &mut Vec<ENTRY>, address: &Address, account: &mut Account) {
         if !account.is_touched() {
-            journal.push(JournalEntry::AccountTouched { address: *address });
+            journal.push(ENTRY::account_touched(*address));
             account.mark_touch();
         }
     }
@@ -333,7 +335,7 @@ impl<DB: Database> JournaledState<DB> {
         self.journal
             .last_mut()
             .unwrap()
-            .push(JournalEntry::CodeChange { address });
+            .push(ENTRY::code_changed(address));
 
         account.info.code_hash = hash;
         account.info.code = Some(code);
@@ -359,7 +361,7 @@ impl<DB: Database> JournaledState<DB> {
         self.journal
             .last_mut()
             .unwrap()
-            .push(JournalEntry::NonceChange { address });
+            .push(ENTRY::nonce_changed(address));
 
         account.info.nonce += 1;
 
@@ -376,7 +378,6 @@ impl<DB: Database> JournaledState<DB> {
     ) -> Result<Option<TransferError>, DB::Error> {
         if balance.is_zero() {
             self.load_account(*to)?;
-            let _ = self.load_account(*to)?;
             let to_account = self.state.get_mut(to).unwrap();
             Self::touch_account(self.journal.last_mut().unwrap(), to, to_account);
             return Ok(None);
@@ -408,65 +409,16 @@ impl<DB: Database> JournaledState<DB> {
         self.journal
             .last_mut()
             .unwrap()
-            .push(JournalEntry::BalanceTransfer {
-                from: *from,
-                to: *to,
-                balance,
-            });
+            .push(ENTRY::balance_transfer(*from, *to, balance));
 
         Ok(None)
-    }
-
-    /// Returns account code bytes and if address is cold loaded.
-    ///
-    /// In case of EOF account it will return `EOF_MAGIC` (0xEF00) as code.
-    ///
-    // TODO : Move this in Journaled state
-    #[inline]
-    pub fn code(&mut self, address: Address) -> Result<StateLoad<Bytes>, <DB as Database>::Error> {
-        let a = self.load_account_code(address)?;
-        // SAFETY: Safe to unwrap as load_code will insert code if it is empty.
-        let code = a.info.code.as_ref().unwrap();
-
-        let code = if code.is_eof() {
-            EOF_MAGIC_BYTES.clone()
-        } else {
-            code.original_bytes()
-        };
-
-        Ok(StateLoad::new(code, a.is_cold))
-    }
-
-    /// Gets code hash of address.
-    ///
-    /// In case of EOF account it will return `EOF_MAGIC_HASH`
-    /// (the hash of `0xEF00`).
-    #[inline]
-    pub fn code_hash(
-        &mut self,
-        address: Address,
-    ) -> Result<StateLoad<B256>, <DB as Database>::Error> {
-        let acc = self.load_account_code(address)?;
-        if acc.is_empty() {
-            return Ok(StateLoad::new(B256::ZERO, acc.is_cold));
-        }
-        // SAFETY: Safe to unwrap as load_code will insert code if it is empty.
-        let code = acc.info.code.as_ref().unwrap();
-
-        let hash = if code.is_eof() {
-            EOF_MAGIC_HASH
-        } else {
-            acc.info.code_hash
-        };
-
-        Ok(StateLoad::new(hash, acc.is_cold))
     }
 
     /// Creates account or returns false if collision is detected.
     ///
     /// There are few steps done:
     /// 1. Make created account warm loaded (AccessList) and this should
-    ///     be done before subroutine checkpoint is created.
+    ///    be done before subroutine checkpoint is created.
     /// 2. Check if there is collision of newly created account with existing one.
     /// 3. Mark created account as created.
     /// 4. Add fund to created account
@@ -475,8 +427,8 @@ impl<DB: Database> JournaledState<DB> {
     ///
     /// # Panics
     ///
-    /// Panics if the caller is not loaded inside of the EVM state.
-    /// This is should have been done inside `create_inner`.
+    /// Panics if the caller is not loaded inside the EVM state.
+    /// This should have been done inside `create_inner`.
     #[inline]
     pub fn create_account_checkpoint(
         &mut self,
@@ -489,9 +441,9 @@ impl<DB: Database> JournaledState<DB> {
         let checkpoint = self.checkpoint();
 
         // Fetch balance of caller.
-        let caller_acc = self.state.get_mut(&caller).unwrap();
+        let caller_balance = self.state.get(&caller).unwrap().info.balance;
         // Check if caller has enough balance to send to the created contract.
-        if caller_acc.info.balance < balance {
+        if caller_balance < balance {
             self.checkpoint_revert(checkpoint);
             return Err(TransferError::OutOfFunds);
         }
@@ -509,13 +461,11 @@ impl<DB: Database> JournaledState<DB> {
             return Err(TransferError::CreateCollision);
         }
 
-        // set account status to created.
+        // set account status to create.
         target_acc.mark_created();
 
         // this entry will revert set nonce.
-        last_journal.push(JournalEntry::AccountCreated {
-            address: target_address,
-        });
+        last_journal.push(ENTRY::account_created(target_address));
         target_acc.info.code = None;
         // EIP-161: State trie clearing (invariant-preserving alternative)
         if spec_id.is_enabled_in(SPURIOUS_DRAGON) {
@@ -538,120 +488,9 @@ impl<DB: Database> JournaledState<DB> {
         self.state.get_mut(&caller).unwrap().info.balance -= balance;
 
         // add journal entry of transferred balance
-        last_journal.push(JournalEntry::BalanceTransfer {
-            from: caller,
-            to: target_address,
-            balance,
-        });
+        last_journal.push(ENTRY::balance_transfer(caller, target_address, balance));
 
         Ok(checkpoint)
-    }
-
-    /// Reverts all changes that happened in given journal entries.
-    #[inline]
-    fn journal_revert(
-        state: &mut EvmState,
-        transient_storage: &mut TransientStorage,
-        journal_entries: Vec<JournalEntry>,
-        is_spurious_dragon_enabled: bool,
-    ) {
-        for entry in journal_entries.into_iter().rev() {
-            match entry {
-                JournalEntry::AccountWarmed { address } => {
-                    state.get_mut(&address).unwrap().mark_cold();
-                }
-                JournalEntry::AccountTouched { address } => {
-                    if is_spurious_dragon_enabled && address == PRECOMPILE3 {
-                        continue;
-                    }
-                    // remove touched status
-                    state.get_mut(&address).unwrap().unmark_touch();
-                }
-                JournalEntry::AccountDestroyed {
-                    address,
-                    target,
-                    was_destroyed,
-                    had_balance,
-                } => {
-                    let account = state.get_mut(&address).unwrap();
-                    // set previous state of selfdestructed flag, as there could be multiple
-                    // selfdestructs in one transaction.
-                    if was_destroyed {
-                        // flag is still selfdestructed
-                        account.mark_selfdestruct();
-                    } else {
-                        // flag that is not selfdestructed
-                        account.unmark_selfdestruct();
-                    }
-                    account.info.balance += had_balance;
-
-                    if address != target {
-                        let target = state.get_mut(&target).unwrap();
-                        target.info.balance -= had_balance;
-                    }
-                }
-                JournalEntry::BalanceTransfer { from, to, balance } => {
-                    // we don't need to check overflow and underflow when adding and subtracting the balance.
-                    let from = state.get_mut(&from).unwrap();
-                    from.info.balance += balance;
-                    let to = state.get_mut(&to).unwrap();
-                    to.info.balance -= balance;
-                }
-                JournalEntry::NonceChange { address } => {
-                    state.get_mut(&address).unwrap().info.nonce -= 1;
-                }
-                JournalEntry::AccountCreated { address } => {
-                    let account = &mut state.get_mut(&address).unwrap();
-                    account.unmark_created();
-                    account
-                        .storage
-                        .values_mut()
-                        .for_each(|slot| slot.mark_cold());
-                    account.info.nonce = 0;
-                }
-                JournalEntry::StorageWarmed { address, key } => {
-                    state
-                        .get_mut(&address)
-                        .unwrap()
-                        .storage
-                        .get_mut(&key)
-                        .unwrap()
-                        .mark_cold();
-                }
-                JournalEntry::StorageChanged {
-                    address,
-                    key,
-                    had_value,
-                } => {
-                    state
-                        .get_mut(&address)
-                        .unwrap()
-                        .storage
-                        .get_mut(&key)
-                        .unwrap()
-                        .present_value = had_value;
-                }
-                JournalEntry::TransientStorageChange {
-                    address,
-                    key,
-                    had_value,
-                } => {
-                    let tkey = (address, key);
-                    if had_value.is_zero() {
-                        // if previous value is zero, remove it
-                        transient_storage.remove(&tkey);
-                    } else {
-                        // if not zero, reinsert old value to transient storage.
-                        transient_storage.insert(tkey, had_value);
-                    }
-                }
-                JournalEntry::CodeChange { address } => {
-                    let acc = state.get_mut(&address).unwrap();
-                    acc.info.code_hash = KECCAK_EMPTY;
-                    acc.info.code = None;
-                }
-            }
-        }
     }
 
     /// Makes a checkpoint that in case of Revert can bring back state to this point.
@@ -680,18 +519,15 @@ impl<DB: Database> JournaledState<DB> {
         let transient_storage = &mut self.transient_storage;
         self.depth -= 1;
         // iterate over last N journals sets and revert our global state
-        let leng = self.journal.len();
+        let len = self.journal.len();
         self.journal
             .iter_mut()
             .rev()
-            .take(leng - checkpoint.journal_i)
+            .take(len - checkpoint.journal_i)
             .for_each(|cs| {
-                Self::journal_revert(
-                    state,
-                    transient_storage,
-                    mem::take(cs),
-                    is_spurious_dragon_enabled,
-                )
+                for entry in mem::take(cs).into_iter().rev() {
+                    entry.revert(state, transient_storage, is_spurious_dragon_enabled);
+                }
             });
 
         self.logs.truncate(checkpoint.log_i);
@@ -723,7 +559,7 @@ impl<DB: Database> JournaledState<DB> {
         if address != target {
             // Both accounts are loaded before this point, `address` as we execute its contract.
             // and `target` at the beginning of the function.
-            let acc_balance = self.state.get_mut(&address).unwrap().info.balance;
+            let acc_balance = self.state.get(&address).unwrap().info.balance;
 
             let target_account = self.state.get_mut(&target).unwrap();
             Self::touch_account(self.journal.last_mut().unwrap(), &target, target_account);
@@ -739,19 +575,15 @@ impl<DB: Database> JournaledState<DB> {
         let journal_entry = if acc.is_created() || !is_cancun_enabled {
             acc.mark_selfdestruct();
             acc.info.balance = U256::ZERO;
-            Some(JournalEntry::AccountDestroyed {
+            Some(ENTRY::account_destroyed(
                 address,
                 target,
-                was_destroyed: previously_destroyed,
-                had_balance: balance,
-            })
+                previously_destroyed,
+                balance,
+            ))
         } else if address != target {
             acc.info.balance = U256::ZERO;
-            Some(JournalEntry::BalanceTransfer {
-                from: address,
-                to: target,
-                balance,
-            })
+            Some(ENTRY::balance_transfer(address, target, balance))
         } else {
             // State is not changed:
             // * if we are after Cancun upgrade and
@@ -813,7 +645,8 @@ impl<DB: Database> JournaledState<DB> {
         address: Address,
     ) -> Result<StateLoad<AccountLoad>, DB::Error> {
         let spec = self.spec;
-        let account = self.load_code(address)?;
+        let is_eip7702_enabled = spec.is_enabled_in(SpecId::PRAGUE);
+        let account = self.load_account_optional(address, is_eip7702_enabled)?;
         let is_empty = account.state_clear_aware_is_empty(spec);
 
         let mut account_load = StateLoad::new(
@@ -875,18 +708,17 @@ impl<DB: Database> JournaledState<DB> {
             self.journal
                 .last_mut()
                 .unwrap()
-                .push(JournalEntry::AccountWarmed { address });
+                .push(ENTRY::account_warmed(address));
         }
         if load_code {
             let info = &mut load.data.info;
             if info.code.is_none() {
-                if info.code_hash == KECCAK_EMPTY {
-                    let empty = Bytecode::default();
-                    info.code = Some(empty);
+                let code = if info.code_hash == KECCAK_EMPTY {
+                    Bytecode::default()
                 } else {
-                    let code = self.database.code_by_hash(info.code_hash)?;
-                    info.code = Some(code);
-                }
+                    self.database.code_by_hash(info.code_hash)?
+                };
+                info.code = Some(code);
             }
         }
 
@@ -929,7 +761,7 @@ impl<DB: Database> JournaledState<DB> {
             self.journal
                 .last_mut()
                 .unwrap()
-                .push(JournalEntry::StorageWarmed { address, key });
+                .push(ENTRY::storage_warmed(address, key));
         }
 
         Ok(StateLoad::new(value, is_cold))
@@ -969,11 +801,7 @@ impl<DB: Database> JournaledState<DB> {
         self.journal
             .last_mut()
             .unwrap()
-            .push(JournalEntry::StorageChanged {
-                address,
-                key,
-                had_value: present.data,
-            });
+            .push(ENTRY::storage_changed(address, key, present.data));
         // insert value into present state.
         slot.present_value = new;
         Ok(StateLoad::new(
@@ -1031,11 +859,7 @@ impl<DB: Database> JournaledState<DB> {
             self.journal
                 .last_mut()
                 .unwrap()
-                .push(JournalEntry::TransientStorageChange {
-                    address,
-                    key,
-                    had_value,
-                });
+                .push(ENTRY::transient_storage_changed(address, key, had_value));
         }
     }
 
@@ -1046,74 +870,10 @@ impl<DB: Database> JournaledState<DB> {
     }
 }
 
-/// Journal entries that are used to track changes to the state and are used to revert it.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum JournalEntry {
-    /// Used to mark account that is warm inside EVM in regards to EIP-2929 AccessList.
-    /// Action: We will add Account to state.
-    /// Revert: we will remove account from state.
-    AccountWarmed { address: Address },
-    /// Mark account to be destroyed and journal balance to be reverted
-    /// Action: Mark account and transfer the balance
-    /// Revert: Unmark the account and transfer balance back
-    AccountDestroyed {
-        address: Address,
-        target: Address,
-        was_destroyed: bool, // if account had already been destroyed before this journal entry
-        had_balance: U256,
-    },
-    /// Loading account does not mean that account will need to be added to MerkleTree (touched).
-    /// Only when account is called (to execute contract or transfer balance) only then account is made touched.
-    /// Action: Mark account touched
-    /// Revert: Unmark account touched
-    AccountTouched { address: Address },
-    /// Transfer balance between two accounts
-    /// Action: Transfer balance
-    /// Revert: Transfer balance back
-    BalanceTransfer {
-        from: Address,
-        to: Address,
-        balance: U256,
-    },
-    /// Increment nonce
-    /// Action: Increment nonce by one
-    /// Revert: Decrement nonce by one
-    NonceChange {
-        address: Address, //geth has nonce value,
-    },
-    /// Create account:
-    /// Actions: Mark account as created
-    /// Revert: Unmart account as created and reset nonce to zero.
-    AccountCreated { address: Address },
-    /// Entry used to track storage changes
-    /// Action: Storage change
-    /// Revert: Revert to previous value
-    StorageChanged {
-        address: Address,
-        key: U256,
-        had_value: U256,
-    },
-    /// Entry used to track storage warming introduced by EIP-2929.
-    /// Action: Storage warmed
-    /// Revert: Revert to cold state
-    StorageWarmed { address: Address, key: U256 },
-    /// It is used to track an EIP-1153 transient storage change.
-    /// Action: Transient storage changed.
-    /// Revert: Revert to previous value.
-    TransientStorageChange {
-        address: Address,
-        key: U256,
-        had_value: U256,
-    },
-    /// Code changed
-    /// Action: Account code changed
-    /// Revert: Revert to previous bytecode.
-    CodeChange { address: Address },
-}
-
-impl<DB> JournaledState<DB> {
-    /// Initialize a new JournaledState from JournalInit with a database
+impl<DB> Journal<DB> {
+    /// Creates a new JournaledState by copying state data from a JournalInit and provided database.
+    /// This allows reusing the state, logs, and other data from a previous execution context while
+    /// connecting it to a different database backend.
     pub fn from_init(init: &JournalInit, database: DB) -> Self {
         Self {
             database,

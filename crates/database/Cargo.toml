@@ -1,7 +1,7 @@
 [package]
 name = "revm-database"
 description = "Revm Database implementations"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.4"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -50,8 +50,24 @@ alloy-sol-types.workspace = true
 
 [features]
 default = ["std"]
-std = ["serde?/std"]
-serde = ["dep:serde"]
+std = [
+	"serde?/std",
+	"alloy-eips?/std",
+	"alloy-sol-types/std",
+	"bytecode/std",
+	"database-interface/std",
+	"primitives/std",
+	"state/std",
+	"serde_json/std"
+]
+serde = [
+	"dep:serde",
+	"alloy-eips?/serde",
+	"bytecode/serde",
+	"database-interface/serde",
+	"primitives/serde",
+	"state/serde"
+]
 alloydb = [
     "std",
     "database-interface/asyncdb",

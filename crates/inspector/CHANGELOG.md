@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.6](https://github.com/bluealloy/revm/compare/revm-inspector-v1.0.0-alpha.5...revm-inspector-v1.0.0-alpha.6) - 2025-03-16
+
+### Added
+
+- *(docs)* MyEvm example and book cleanup ([#2218](https://github.com/bluealloy/revm/pull/2218))
+
+## [1.0.0-alpha.5](https://github.com/bluealloy/revm/compare/revm-inspector-v1.0.0-alpha.4...revm-inspector-v1.0.0-alpha.5) - 2025-03-12
+
+### Added
+
+- add custom error to context ([#2197](https://github.com/bluealloy/revm/pull/2197))
+- Add tx/block to EvmExecution trait ([#2195](https://github.com/bluealloy/revm/pull/2195))
+- rename inspect_previous to inspect_replay ([#2194](https://github.com/bluealloy/revm/pull/2194))
+
+## [1.0.0-alpha.4](https://github.com/bluealloy/revm/compare/revm-inspector-v1.0.0-alpha.3...revm-inspector-v1.0.0-alpha.4) - 2025-03-11
+
+### Added
+
+- decouple first_frame_input from inspector ([#2180](https://github.com/bluealloy/revm/pull/2180))
+
+### Fixed
+
+- remove wrong Clone Macro in WrapDatabaseRef ([#2181](https://github.com/bluealloy/revm/pull/2181))
+- correct propagate features ([#2177](https://github.com/bluealloy/revm/pull/2177))
+
+### Other
+
+- remove CTX phantomdata from precompile providers ([#2178](https://github.com/bluealloy/revm/pull/2178))
+
+## [1.0.0-alpha.3](https://github.com/bluealloy/revm/compare/revm-inspector-v1.0.0-alpha.2...revm-inspector-v1.0.0-alpha.3) - 2025-03-10
+
+### Other
+
+- updated the following local packages: revm-interpreter, revm-precompile
+
+## [1.0.0-alpha.2](https://github.com/bluealloy/revm/compare/revm-inspector-v1.0.0-alpha.1...revm-inspector-v1.0.0-alpha.2) - 2025-03-10
+
+### Fixed
+
+- *(op)* Handler deposit tx halt, catch_error handle ([#2144](https://github.com/bluealloy/revm/pull/2144))
+
+### Other
+
+- JournalTr, JournalOutput, op only using revm crate ([#2155](https://github.com/bluealloy/revm/pull/2155))
+- docs and cleanup (rm Custom Inst) ([#2151](https://github.com/bluealloy/revm/pull/2151))
+- move mainnet builder to handler crate ([#2138](https://github.com/bluealloy/revm/pull/2138))
+- add immutable gas API to LoopControl ([#2134](https://github.com/bluealloy/revm/pull/2134))
+- PrecompileErrors to PrecompileError ([#2103](https://github.com/bluealloy/revm/pull/2103))
+- move all dependencies to workspace ([#2092](https://github.com/bluealloy/revm/pull/2092))
+- remove unused generics from TracerEip3155 ([#2090](https://github.com/bluealloy/revm/pull/2090))
+- re-export all crates from `revm` ([#2088](https://github.com/bluealloy/revm/pull/2088))
+
 ## [1.0.0-alpha.1](https://github.com/bluealloy/revm/releases/tag/revm-inspector-v1.0.0-alpha.1) - 2025-02-16
 
 ### Added

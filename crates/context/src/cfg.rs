@@ -1,7 +1,6 @@
 pub use context_interface::Cfg;
 
-use interpreter::MAX_CODE_SIZE;
-use specification::hardfork::SpecId;
+use primitives::{eip170::MAX_CODE_SIZE, hardfork::SpecId};
 use std::{vec, vec::Vec};
 
 /// EVM configuration
@@ -59,15 +58,6 @@ pub struct CfgEnv<SPEC = SpecId> {
     /// By default, it is set to `false`.
     #[cfg(feature = "optional_eip3607")]
     pub disable_eip3607: bool,
-    /// Disables all gas refunds
-    ///
-    /// This is useful when using chains that have gas refunds disabled, e.g. Avalanche.
-    ///
-    /// Reasoning behind removing gas refunds can be found in EIP-3298.
-    ///
-    /// By default, it is set to `false`.
-    #[cfg(feature = "optional_gas_refund")]
-    pub disable_gas_refund: bool,
     /// Disables base fee checks for EIP-1559 transactions
     ///
     /// This is useful for testing method calls with zero gas price.
@@ -85,6 +75,26 @@ impl CfgEnv {
 }
 
 impl<SPEC> CfgEnv<SPEC> {
+    pub fn new_with_spec(spec: SPEC) -> Self {
+        Self {
+            chain_id: 1,
+            limit_contract_code_size: None,
+            spec,
+            disable_nonce_check: false,
+            blob_target_and_max_count: vec![(SpecId::CANCUN, 3, 6), (SpecId::PRAGUE, 6, 9)],
+            #[cfg(feature = "memory_limit")]
+            memory_limit: (1 << 32) - 1,
+            #[cfg(feature = "optional_balance_check")]
+            disable_balance_check: false,
+            #[cfg(feature = "optional_block_gas_limit")]
+            disable_block_gas_limit: false,
+            #[cfg(feature = "optional_eip3607")]
+            disable_eip3607: false,
+            #[cfg(feature = "optional_no_base_fee")]
+            disable_base_fee: false,
+        }
+    }
+
     pub fn with_chain_id(mut self, chain_id: u64) -> Self {
         self.chain_id = chain_id;
         self
@@ -105,8 +115,6 @@ impl<SPEC> CfgEnv<SPEC> {
             disable_block_gas_limit: self.disable_block_gas_limit,
             #[cfg(feature = "optional_eip3607")]
             disable_eip3607: self.disable_eip3607,
-            #[cfg(feature = "optional_gas_refund")]
-            disable_gas_refund: self.disable_gas_refund,
             #[cfg(feature = "optional_no_base_fee")]
             disable_base_fee: self.disable_base_fee,
         }
@@ -168,16 +176,7 @@ impl<SPEC: Into<SpecId> + Copy> Cfg for CfgEnv<SPEC> {
         }
     }
 
-    fn is_gas_refund_disabled(&self) -> bool {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "optional_gas_refund")] {
-                self.disable_gas_refund
-            } else {
-                false
-            }
-        }
-    }
-
+    /// Returns `true` if the block gas limit is disabled.
     fn is_block_gas_limit_disabled(&self) -> bool {
         cfg_if::cfg_if! {
             if #[cfg(feature = "optional_block_gas_limit")] {
@@ -205,25 +204,7 @@ impl<SPEC: Into<SpecId> + Copy> Cfg for CfgEnv<SPEC> {
 
 impl<SPEC: Default> Default for CfgEnv<SPEC> {
     fn default() -> Self {
-        Self {
-            chain_id: 1,
-            limit_contract_code_size: None,
-            spec: Default::default(),
-            disable_nonce_check: false,
-            blob_target_and_max_count: vec![(SpecId::CANCUN, 3, 6), (SpecId::PRAGUE, 6, 9)],
-            #[cfg(feature = "memory_limit")]
-            memory_limit: (1 << 32) - 1,
-            #[cfg(feature = "optional_balance_check")]
-            disable_balance_check: false,
-            #[cfg(feature = "optional_block_gas_limit")]
-            disable_block_gas_limit: false,
-            #[cfg(feature = "optional_eip3607")]
-            disable_eip3607: false,
-            #[cfg(feature = "optional_gas_refund")]
-            disable_gas_refund: false,
-            #[cfg(feature = "optional_no_base_fee")]
-            disable_base_fee: false,
-        }
+        Self::new_with_spec(SPEC::default())
     }
 }
 

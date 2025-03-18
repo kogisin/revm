@@ -1,12 +1,14 @@
 use super::frame_data::*;
 use crate::{
-    handler::EvmTr, instructions::InstructionProvider, precompile_provider::PrecompileProvider,
+    instructions::InstructionProvider, precompile_provider::PrecompileProvider, EvmTr,
     FrameInitOrResult, FrameOrResult, ItemOrResult,
 };
 use bytecode::{Eof, EOF_MAGIC_BYTES};
+use context::result::FromStringError;
+use context_interface::context::ContextError;
 use context_interface::ContextTr;
 use context_interface::{
-    journaled_state::{Journal, JournalCheckpoint},
+    journaled_state::{JournalCheckpoint, JournalTr},
     Cfg, Database, Transaction,
 };
 use core::{cell::RefCell, cmp::min};
@@ -18,12 +20,11 @@ use interpreter::{
     CreateScheme, EOFCreateInputs, EOFCreateKind, FrameInput, Gas, InputsImpl, InstructionResult,
     Interpreter, InterpreterAction, InterpreterResult, InterpreterTypes, SharedMemory,
 };
-use precompile::PrecompileErrors;
-use primitives::{keccak256, Address, Bytes, B256, U256};
-use specification::{
+use primitives::{
     constants::CALL_STACK_LIMIT,
     hardfork::SpecId::{self, HOMESTEAD, LONDON, OSAKA, SPURIOUS_DRAGON},
 };
+use primitives::{keccak256, Address, Bytes, B256, U256};
 use state::Bytecode;
 use std::borrow::ToOwned;
 use std::{boxed::Box, rc::Rc, sync::Arc};
@@ -74,14 +75,13 @@ pub struct EthFrame<EVM, ERROR, IW: InterpreterTypes> {
 impl<EVM, ERROR> Frame for EthFrame<EVM, ERROR, EthInterpreter>
 where
     EVM: EvmTr<
-        Precompiles: PrecompileProvider<Context = EVM::Context, Output = InterpreterResult>,
+        Precompiles: PrecompileProvider<EVM::Context, Output = InterpreterResult>,
         Instructions: InstructionProvider<
             Context = EVM::Context,
             InterpreterTypes = EthInterpreter,
-            Output = InterpreterAction,
         >,
     >,
-    ERROR: From<ContextTrDbError<EVM::Context>> + From<PrecompileErrors>,
+    ERROR: From<ContextTrDbError<EVM::Context>> + FromStringError,
 {
     type Evm = EVM;
     type FrameInit = FrameInput;
@@ -147,10 +147,11 @@ impl<EVM, ERROR> EthFrame<EVM, ERROR, EthInterpreter>
 where
     EVM: EvmTr<
         Context: ContextTr,
-        Precompiles: PrecompileProvider<Context = EVM::Context, Output = InterpreterResult>,
+        Precompiles: PrecompileProvider<EVM::Context, Output = InterpreterResult>,
         Instructions: InstructionProvider,
     >,
-    ERROR: From<ContextTrDbError<EVM::Context>> + From<PrecompileErrors>,
+    ERROR: From<ContextTrDbError<EVM::Context>>,
+    ERROR: FromStringError,
 {
     /// Make call frame
     #[inline]
@@ -203,12 +204,15 @@ where
         }
         let is_ext_delegate_call = inputs.scheme.is_ext_delegate_call();
         if !is_ext_delegate_call {
-            if let Some(result) = precompiles.run(
-                context,
-                &inputs.bytecode_address,
-                &inputs.input,
-                inputs.gas_limit,
-            )? {
+            if let Some(result) = precompiles
+                .run(
+                    context,
+                    &inputs.bytecode_address,
+                    &inputs.input,
+                    inputs.gas_limit,
+                )
+                .map_err(ERROR::from_string)?
+            {
                 if result.result.is_ok() {
                     context.journal().checkpoint_commit();
                 } else {
@@ -515,14 +519,13 @@ impl<EVM, ERROR> EthFrame<EVM, ERROR, EthInterpreter>
 where
     EVM: EvmTr<
         Context: ContextTr,
-        Precompiles: PrecompileProvider<Context = EVM::Context, Output = InterpreterResult>,
+        Precompiles: PrecompileProvider<EVM::Context, Output = InterpreterResult>,
         Instructions: InstructionProvider<
             Context = EVM::Context,
             InterpreterTypes = EthInterpreter,
-            Output = InterpreterAction,
         >,
     >,
-    ERROR: From<ContextTrDbError<EVM::Context>> + From<PrecompileErrors>,
+    ERROR: From<ContextTrDbError<EVM::Context>> + FromStringError,
 {
     pub fn init_first(
         evm: &mut EVM,
@@ -617,7 +620,11 @@ where
 
     fn return_result(&mut self, evm: &mut EVM, result: FrameResult) -> Result<(), ERROR> {
         self.memory.borrow_mut().free_context();
-        core::mem::replace(evm.ctx().error(), Ok(()))?;
+        match core::mem::replace(evm.ctx().error(), Ok(())) {
+            Err(ContextError::Db(e)) => return Err(e.into()),
+            Err(ContextError::Custom(e)) => return Err(ERROR::from_string(e)),
+            Ok(_) => (),
+        }
 
         // Insert result to the top frame.
         match result {
@@ -629,7 +636,7 @@ where
                 let interpreter = &mut self.interpreter;
                 let mem_length = outcome.memory_length();
                 let mem_start = outcome.memory_start();
-                *interpreter.return_data.buffer_mut() = outcome.result.output;
+                interpreter.return_data.set_buffer(outcome.result.output);
 
                 let target_len = min(mem_length, returned_len);
 
@@ -655,27 +662,34 @@ where
 
                 // Return unspend gas.
                 if ins_result.is_ok_or_revert() {
-                    interpreter.control.gas().erase_cost(out_gas.remaining());
+                    interpreter
+                        .control
+                        .gas_mut()
+                        .erase_cost(out_gas.remaining());
                     self.memory
                         .borrow_mut()
                         .set(mem_start, &interpreter.return_data.buffer()[..target_len]);
                 }
 
                 if ins_result.is_ok() {
-                    interpreter.control.gas().record_refund(out_gas.refunded());
+                    interpreter
+                        .control
+                        .gas_mut()
+                        .record_refund(out_gas.refunded());
                 }
             }
             FrameResult::Create(outcome) => {
                 let instruction_result = *outcome.instruction_result();
                 let interpreter = &mut self.interpreter;
 
-                let buffer = interpreter.return_data.buffer_mut();
                 if instruction_result == InstructionResult::Revert {
                     // Save data to return data buffer if the create reverted
-                    *buffer = outcome.output().to_owned()
+                    interpreter
+                        .return_data
+                        .set_buffer(outcome.output().to_owned());
                 } else {
                     // Otherwise clear it. Note that RETURN opcode should abort.
-                    buffer.clear();
+                    interpreter.return_data.clear();
                 };
 
                 assert_ne!(
@@ -684,7 +698,7 @@ where
                     "Fatal external error in insert_eofcreate_outcome"
                 );
 
-                let this_gas = interpreter.control.gas();
+                let this_gas = interpreter.control.gas_mut();
                 if instruction_result.is_ok_or_revert() {
                     this_gas.erase_cost(outcome.gas().remaining());
                 }
@@ -704,10 +718,12 @@ where
                 let interpreter = &mut self.interpreter;
                 if instruction_result == InstructionResult::Revert {
                     // Save data to return data buffer if the create reverted
-                    *interpreter.return_data.buffer_mut() = outcome.output().to_owned()
+                    interpreter
+                        .return_data
+                        .set_buffer(outcome.output().to_owned());
                 } else {
                     // Otherwise clear it. Note that RETURN opcode should abort.
-                    interpreter.return_data.buffer_mut().clear();
+                    interpreter.return_data.clear()
                 };
 
                 assert_ne!(
@@ -716,7 +732,7 @@ where
                     "Fatal external error in insert_eofcreate_outcome"
                 );
 
-                let this_gas = interpreter.control.gas();
+                let this_gas = interpreter.control.gas_mut();
                 if instruction_result.is_ok_or_revert() {
                     this_gas.erase_cost(outcome.gas().remaining());
                 }
@@ -737,7 +753,7 @@ where
     }
 }
 
-pub fn return_create<JOURNAL: Journal>(
+pub fn return_create<JOURNAL: JournalTr>(
     journal: &mut JOURNAL,
     checkpoint: JournalCheckpoint,
     interpreter_result: &mut InterpreterResult,
@@ -793,7 +809,7 @@ pub fn return_create<JOURNAL: Journal>(
     interpreter_result.result = InstructionResult::Return;
 }
 
-pub fn return_eofcreate<JOURNAL: Journal>(
+pub fn return_eofcreate<JOURNAL: JournalTr>(
     journal: &mut JOURNAL,
     checkpoint: JournalCheckpoint,
     interpreter_result: &mut InterpreterResult,

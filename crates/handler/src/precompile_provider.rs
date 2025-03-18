@@ -2,75 +2,82 @@ use auto_impl::auto_impl;
 use context::Cfg;
 use context_interface::ContextTr;
 use interpreter::{Gas, InstructionResult, InterpreterResult};
-use precompile::PrecompileErrors;
+use precompile::PrecompileError;
 use precompile::{PrecompileSpecId, Precompiles};
-use primitives::{Address, Bytes};
-use specification::hardfork::SpecId;
+use primitives::{hardfork::SpecId, Address, Bytes};
 use std::boxed::Box;
+use std::string::String;
 
 #[auto_impl(&mut, Box)]
-pub trait PrecompileProvider {
-    type Context: ContextTr;
+pub trait PrecompileProvider<CTX: ContextTr> {
     type Output;
 
-    fn set_spec(&mut self, spec: <<Self::Context as ContextTr>::Cfg as Cfg>::Spec);
+    fn set_spec(&mut self, spec: <CTX::Cfg as Cfg>::Spec);
 
     /// Run the precompile.
     fn run(
         &mut self,
-        context: &mut Self::Context,
+        context: &mut CTX,
         address: &Address,
         bytes: &Bytes,
         gas_limit: u64,
-    ) -> Result<Option<Self::Output>, PrecompileErrors>;
+    ) -> Result<Option<Self::Output>, String>;
 
     /// Get the warm addresses.
-    fn warm_addresses(&self) -> Box<impl Iterator<Item = Address> + '_>;
+    fn warm_addresses(&self) -> Box<impl Iterator<Item = Address>>;
 
     /// Check if the address is a precompile.
     fn contains(&self, address: &Address) -> bool;
 }
 
-pub struct EthPrecompiles<CTX> {
+/// The [`PrecompileProvider`] for ethereum precompiles.
+#[derive(Debug)]
+pub struct EthPrecompiles {
     pub precompiles: &'static Precompiles,
-    pub _phantom: core::marker::PhantomData<CTX>,
 }
 
-impl<CTX> Clone for EthPrecompiles<CTX> {
+impl EthPrecompiles {
+    /// Returns addresses of the precompiles.
+    pub fn warm_addresses(&self) -> Box<impl Iterator<Item = Address>> {
+        Box::new(self.precompiles.addresses().cloned())
+    }
+
+    /// Returns whether the address is a precompile.
+    pub fn contains(&self, address: &Address) -> bool {
+        self.precompiles.contains(address)
+    }
+}
+
+impl Clone for EthPrecompiles {
     fn clone(&self) -> Self {
         Self {
             precompiles: self.precompiles,
-            _phantom: core::marker::PhantomData,
         }
     }
 }
 
-impl<CTX> Default for EthPrecompiles<CTX> {
+impl Default for EthPrecompiles {
     fn default() -> Self {
         Self {
             precompiles: Precompiles::new(PrecompileSpecId::from_spec_id(SpecId::LATEST)),
-            _phantom: core::marker::PhantomData,
         }
     }
 }
 
-impl<CTX> PrecompileProvider for EthPrecompiles<CTX>
-where
-    CTX: ContextTr,
-{
-    type Context = CTX;
+impl<CTX: ContextTr> PrecompileProvider<CTX> for EthPrecompiles {
     type Output = InterpreterResult;
-    fn set_spec(&mut self, spec: <<Self::Context as ContextTr>::Cfg as Cfg>::Spec) {
+
+    fn set_spec(&mut self, spec: <CTX::Cfg as Cfg>::Spec) {
         self.precompiles = Precompiles::new(PrecompileSpecId::from_spec_id(spec.into()));
     }
 
     fn run(
         &mut self,
-        _context: &mut Self::Context,
+        _context: &mut CTX,
         address: &Address,
         bytes: &Bytes,
         gas_limit: u64,
-    ) -> Result<Option<InterpreterResult>, PrecompileErrors> {
+    ) -> Result<Option<InterpreterResult>, String> {
         let Some(precompile) = self.precompiles.get(address) else {
             return Ok(None);
         };
@@ -88,23 +95,23 @@ where
                 result.result = InstructionResult::Return;
                 result.output = output.bytes;
             }
-            Err(PrecompileErrors::Error(e)) => {
+            Err(PrecompileError::Fatal(e)) => return Err(e),
+            Err(e) => {
                 result.result = if e.is_oog() {
                     InstructionResult::PrecompileOOG
                 } else {
                     InstructionResult::PrecompileError
                 };
             }
-            Err(err @ PrecompileErrors::Fatal { .. }) => return Err(err),
         }
         Ok(Some(result))
     }
 
     fn warm_addresses(&self) -> Box<impl Iterator<Item = Address>> {
-        Box::new(self.precompiles.addresses().cloned())
+        self.warm_addresses()
     }
 
     fn contains(&self, address: &Address) -> bool {
-        self.precompiles.contains(address)
+        self.contains(address)
     }
 }

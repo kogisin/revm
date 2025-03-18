@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.4](https://github.com/bluealloy/revm/compare/revm-database-interface-v1.0.0-alpha.3...revm-database-interface-v1.0.0-alpha.4) - 2025-03-16
+
+### Other
+
+- updated the following local packages: revm-primitives
+
+## [1.0.0-alpha.3](https://github.com/bluealloy/revm/compare/revm-database-interface-v1.0.0-alpha.2...revm-database-interface-v1.0.0-alpha.3) - 2025-03-11
+
+### Fixed
+
+- remove wrong Clone Macro in WrapDatabaseRef ([#2181](https://github.com/bluealloy/revm/pull/2181))
+- correct propagate features ([#2177](https://github.com/bluealloy/revm/pull/2177))
+
+## [1.0.0-alpha.2](https://github.com/bluealloy/revm/compare/revm-database-interface-v1.0.0-alpha.1...revm-database-interface-v1.0.0-alpha.2) - 2025-03-10
+
+### Added
+
+- TryDatabaseCommit ([#2121](https://github.com/bluealloy/revm/pull/2121))
+
+### Other
+
+- move all dependencies to workspace ([#2092](https://github.com/bluealloy/revm/pull/2092))
+
 ## [1.0.0-alpha.1](https://github.com/bluealloy/revm/releases/tag/revm-database-interface-v1.0.0-alpha.1) - 2025-02-16
 
 ### Added

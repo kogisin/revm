@@ -1,6 +1,7 @@
-pub use alloy_eip2930::AccessList;
-pub use alloy_eip7702::SignedAuthorization;
-use context_interface::Transaction;
+use crate::TransactionType;
+use context_interface::transaction::{
+    AccessList, AccessListItem, SignedAuthorization, Transaction,
+};
 use core::fmt::Debug;
 use primitives::{Address, Bytes, TxKind, B256, U256};
 use std::vec::Vec;
@@ -97,8 +98,50 @@ impl Default for TxEnv {
     }
 }
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum DeriveTxTypeError {
+    MissingTargetForEip4844,
+    MissingTargetForEip7702,
+}
+
+impl TxEnv {
+    /// Derives tx type from transaction fields and sets it to `tx_type`.
+    /// Returns error in case some fields were not set correctly.
+    pub fn derive_tx_type(&mut self) -> Result<(), DeriveTxTypeError> {
+        let mut tx_type = TransactionType::Legacy;
+
+        if !self.access_list.0.is_empty() {
+            tx_type = TransactionType::Eip2930;
+        }
+
+        if self.gas_priority_fee.is_some() {
+            tx_type = TransactionType::Eip1559;
+        }
+
+        if !self.blob_hashes.is_empty() {
+            if let TxKind::Call(_) = self.kind {
+                tx_type = TransactionType::Eip4844;
+            } else {
+                return Err(DeriveTxTypeError::MissingTargetForEip4844);
+            }
+        }
+
+        if !self.authorization_list.is_empty() {
+            if let TxKind::Call(_) = self.kind {
+                tx_type = TransactionType::Eip7702;
+            } else {
+                return Err(DeriveTxTypeError::MissingTargetForEip7702);
+            }
+        }
+
+        self.tx_type = tx_type as u8;
+        Ok(())
+    }
+}
+
 impl Transaction for TxEnv {
-    type AccessList = AccessList;
+    type AccessListItem = AccessListItem;
     type Authorization = SignedAuthorization;
 
     fn tx_type(&self) -> u8 {
@@ -133,8 +176,8 @@ impl Transaction for TxEnv {
         self.chain_id
     }
 
-    fn access_list(&self) -> Option<&Self::AccessList> {
-        Some(&self.access_list)
+    fn access_list(&self) -> Option<impl Iterator<Item = &Self::AccessListItem>> {
+        Some(self.access_list.0.iter())
     }
 
     fn max_fee_per_gas(&self) -> u128 {

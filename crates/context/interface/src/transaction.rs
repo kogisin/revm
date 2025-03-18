@@ -3,15 +3,18 @@ pub mod eip2930;
 pub mod eip7702;
 pub mod transaction_type;
 
-pub use eip2930::AccessListTr;
+pub use alloy_types::{
+    AccessList, AccessListItem, Authorization, RecoveredAuthority, RecoveredAuthorization,
+    SignedAuthorization,
+};
+pub use eip2930::AccessListItemTr;
 pub use eip7702::AuthorizationTr;
-use specification::eip4844::GAS_PER_BLOB;
 pub use transaction_type::TransactionType;
 
 use auto_impl::auto_impl;
 use core::cmp::min;
 use core::fmt::Debug;
-use primitives::{Address, Bytes, TxKind, B256, U256};
+use primitives::{eip4844::GAS_PER_BLOB, Address, Bytes, TxKind, B256, U256};
 
 /// Transaction validity error types.
 pub trait TransactionError: Debug + core::error::Error {}
@@ -24,7 +27,7 @@ pub trait TransactionError: Debug + core::error::Error {}
 /// deprecated by not returning tx_type.
 #[auto_impl(&, Box, Arc, Rc)]
 pub trait Transaction {
-    type AccessList: AccessListTr;
+    type AccessListItem: AccessListItemTr;
     type Authorization: AuthorizationTr;
 
     /// Returns the transaction type.
@@ -76,7 +79,7 @@ pub trait Transaction {
     /// Access list for the transaction.
     ///
     /// Introduced in EIP-2930.
-    fn access_list(&self) -> Option<&Self::AccessList>;
+    fn access_list(&self) -> Option<impl Iterator<Item = &Self::AccessListItem>>;
 
     /// Returns vector of fixed size hash(32 bytes)
     ///

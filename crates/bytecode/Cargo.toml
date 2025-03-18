@@ -1,7 +1,7 @@
 [package]
 name = "revm-bytecode"
 description = "EVM Bytecodes"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.4"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -24,7 +24,6 @@ all = "warn"
 [dependencies]
 # revm
 primitives.workspace = true
-specification.workspace = true
 
 # Jumpmap
 bitvec = { workspace = true, features = ["alloc"] }
@@ -38,8 +37,18 @@ phf = { workspace = true, features = ["macros"], optional = true }
 
 [features]
 default = ["std", "parse"]
-std = ["serde?/std", "primitives/std"]
+std = [
+	"serde?/std",
+	"primitives/std",
+	"bitvec/std",
+	"phf?/std"
+]
 hashbrown = ["primitives/hashbrown"]
-serde = ["dep:serde", "primitives/serde", "bitvec/serde"]
+serde = [
+	"dep:serde",
+	"primitives/serde",
+	"bitvec/serde",
+	"phf?/serde"
+]
 serde-json = ["serde"]
 parse = ["phf", "paste"]

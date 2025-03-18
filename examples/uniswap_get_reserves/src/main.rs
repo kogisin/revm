@@ -4,9 +4,9 @@
 use alloy_eips::BlockId;
 use alloy_provider::ProviderBuilder;
 use alloy_sol_types::{sol, SolCall};
-use database::{AlloyDB, CacheDB};
 use revm::{
     context_interface::result::{ExecutionResult, Output},
+    database::{AlloyDB, CacheDB},
     database_interface::{DatabaseRef, EmptyDB, WrapDatabaseAsync},
     primitives::{address, TxKind, U256},
     Context, ExecuteEvm, MainBuilder, MainContext,
@@ -16,7 +16,7 @@ use revm::{
 async fn main() -> anyhow::Result<()> {
     // Initialize the Alloy provider and database
     let rpc_url = "https://mainnet.infura.io/v3/c60b0bb42f8a4c6481ecd229eddaca27";
-    let provider = ProviderBuilder::new().on_builtin(rpc_url).await?;
+    let provider = ProviderBuilder::new().connect(rpc_url).await?;
 
     let alloy_db = WrapDatabaseAsync::new(AlloyDB::new(provider, BlockId::latest())).unwrap();
     let cache_db = CacheDB::new(alloy_db);
@@ -81,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
         .build_mainnet();
 
     // Execute transaction without writing to the DB
-    let ref_tx = evm.transact_previous().unwrap();
+    let ref_tx = evm.replay().unwrap();
     // Select ExecutionResult struct
     let result = ref_tx.result;
 

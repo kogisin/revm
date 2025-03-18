@@ -1,8 +1,7 @@
 use auto_impl::auto_impl;
 use core::fmt::Debug;
 use core::hash::Hash;
-use primitives::{TxKind, U256};
-use specification::hardfork::SpecId;
+use primitives::{hardfork::SpecId, TxKind, U256};
 
 #[auto_impl(&, &mut, Box, Arc)]
 pub trait Cfg {
@@ -23,8 +22,6 @@ pub trait Cfg {
     fn is_eip3607_disabled(&self) -> bool;
 
     fn is_balance_check_disabled(&self) -> bool;
-
-    fn is_gas_refund_disabled(&self) -> bool;
 
     fn is_block_gas_limit_disabled(&self) -> bool;
 

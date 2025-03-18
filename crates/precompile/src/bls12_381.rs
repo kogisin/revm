@@ -1,5 +1,6 @@
 use crate::PrecompileWithAddress;
 
+mod blst;
 mod g1;
 pub mod g1_add;
 pub mod g1_msm;
@@ -8,7 +9,6 @@ pub mod g2_add;
 pub mod g2_msm;
 pub mod map_fp2_to_g2;
 pub mod map_fp_to_g1;
-pub mod msm;
 pub mod pairing;
 mod utils;
 

@@ -7,17 +7,15 @@
 use alloy_provider::{network::Ethereum, DynProvider, Provider, ProviderBuilder};
 use alloy_sol_types::SolValue;
 use anyhow::Result;
-use database::{AlloyDB, BlockId, CacheDB};
 use exec::transact_erc20evm_commit;
 use revm::{
     context_interface::{
         result::{InvalidHeader, InvalidTransaction},
-        ContextTr, Journal,
+        ContextTr, JournalTr,
     },
+    database::{AlloyDB, BlockId, CacheDB},
     database_interface::WrapDatabaseAsync,
-    precompile::PrecompileErrors,
-    primitives::{address, keccak256, Address, Bytes, TxKind, U256},
-    specification::hardfork::SpecId,
+    primitives::{address, hardfork::SpecId, keccak256, Address, TxKind, KECCAK_EMPTY, U256},
     state::AccountInfo,
     Context, Database, MainBuilder, MainContext,
 };
@@ -35,7 +33,7 @@ pub const TREASURY: Address = address!("0000000000000000000000000000000000000001
 async fn main() -> Result<()> {
     // Initialize the Alloy provider and database
     let rpc_url = "https://mainnet.infura.io/v3/c60b0bb42f8a4c6481ecd229eddaca27";
-    let provider = ProviderBuilder::new().on_builtin(rpc_url).await?.erased();
+    let provider = ProviderBuilder::new().connect(rpc_url).await?.erased();
 
     let alloy_db = WrapDatabaseAsync::new(AlloyDB::new(provider, BlockId::latest())).unwrap();
     let mut cache_db = CacheDB::new(alloy_db);
@@ -58,7 +56,7 @@ async fn main() -> Result<()> {
         AccountInfo {
             nonce: 0,
             balance: hundred_tokens * U256::from(2),
-            code_hash: keccak256(Bytes::new()),
+            code_hash: KECCAK_EMPTY,
             code: None,
         },
     );
@@ -85,10 +83,7 @@ pub fn token_operation<CTX, ERROR>(
 ) -> Result<(), ERROR>
 where
     CTX: ContextTr,
-    ERROR: From<InvalidTransaction>
-        + From<InvalidHeader>
-        + From<<CTX::Db as Database>::Error>
-        + From<PrecompileErrors>,
+    ERROR: From<InvalidTransaction> + From<InvalidHeader> + From<<CTX::Db as Database>::Error>,
 {
     let sender_balance_slot = erc_address_storage(sender);
     let sender_balance = context.journal().sload(TOKEN, sender_balance_slot)?.data;

@@ -12,6 +12,7 @@ pub mod blake2;
 #[cfg(feature = "blst")]
 pub mod bls12_381;
 pub mod bls12_381_const;
+pub mod bls12_381_utils;
 pub mod bn128;
 pub mod hash;
 pub mod identity;
@@ -28,14 +29,11 @@ pub use interface::*;
 #[cfg(all(feature = "c-kzg", feature = "kzg-rs"))]
 // silence kzg-rs lint as c-kzg will be used as default if both are enabled.
 use kzg_rs as _;
-pub use primitives::{Address, Bytes, HashMap, HashSet, Log, B256};
-
-pub use primitives;
 
 use cfg_if::cfg_if;
 use core::hash::Hash;
 use once_cell::race::OnceBox;
-use specification::hardfork::SpecId;
+use primitives::{hardfork::SpecId, Address, HashMap, HashSet};
 use std::{boxed::Box, vec::Vec};
 
 pub fn calc_linear_cost_u32(len: usize, base: u64, word: u64) -> u64 {
@@ -146,7 +144,7 @@ impl Precompiles {
                 if #[cfg(any(feature = "c-kzg", feature = "kzg-rs"))] {
                     let precompile = kzg_point_evaluation::POINT_EVALUATION.clone();
                 } else {
-                    let precompile = PrecompileWithAddress(u64_to_address(0x0A), |_,_| Err(PrecompileErrors::Fatal { msg: "c-kzg feature is not enabled".into()}));
+                    let precompile = PrecompileWithAddress(u64_to_address(0x0A), |_,_| Err(PrecompileError::Fatal("c-kzg feature is not enabled".into())));
                 }
             }
 
@@ -286,8 +284,8 @@ impl From<SpecId> for PrecompileSpecId {
 
 impl PrecompileSpecId {
     /// Returns the appropriate precompile Spec for the primitive [SpecId].
-    pub const fn from_spec_id(spec_id: specification::hardfork::SpecId) -> Self {
-        use specification::hardfork::SpecId::*;
+    pub const fn from_spec_id(spec_id: primitives::hardfork::SpecId) -> Self {
+        use primitives::hardfork::SpecId::*;
         match spec_id {
             FRONTIER | FRONTIER_THAWING | HOMESTEAD | DAO_FORK | TANGERINE | SPURIOUS_DRAGON => {
                 Self::HOMESTEAD

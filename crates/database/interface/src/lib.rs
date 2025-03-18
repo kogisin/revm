@@ -16,10 +16,12 @@ use std::string::String;
 #[cfg(feature = "asyncdb")]
 pub mod async_db;
 pub mod empty_db;
+pub mod try_commit;
 
 #[cfg(feature = "asyncdb")]
 pub use async_db::{DatabaseAsync, WrapDatabaseAsync};
 pub use empty_db::{EmptyDB, EmptyDBTyped};
+pub use try_commit::{ArcUpgradeError, TryDatabaseCommit};
 
 /// Database error marker is needed to implement From conversion for Error type.
 pub trait DBErrorMarker {}
@@ -80,7 +82,7 @@ pub trait DatabaseRef {
 }
 
 /// Wraps a [`DatabaseRef`] to provide a [`Database`] implementation.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WrapDatabaseRef<T: DatabaseRef>(pub T);
 
 impl<F: DatabaseRef> From<F> for WrapDatabaseRef<F> {

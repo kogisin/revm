@@ -1,20 +1,21 @@
-use crate::{evm::OpEvm, transaction::OpTxTr, L1BlockInfo, OpSpecId, OpTransaction};
-use precompile::Log;
+use crate::{evm::OpEvm, transaction::OpTxTr, L1BlockInfo, OpSpecId};
 use revm::{
-    context::{BlockEnv, Cfg, CfgEnv, TxEnv},
-    context_interface::{Block, Journal},
+    context::{Cfg, JournalOutput},
+    context_interface::{Block, JournalTr},
     handler::instructions::EthInstructions,
     interpreter::interpreter::EthInterpreter,
-    state::EvmState,
-    Context, Database, JournaledState,
+    Context, Database,
 };
-use std::vec::Vec;
 
+/// Trait that allows for optimism OpEvm to be built.
 pub trait OpBuilder: Sized {
+    /// Type of the context.
     type Context;
 
+    /// Build the op.
     fn build_op(self) -> OpEvm<Self::Context, (), EthInstructions<EthInterpreter, Self::Context>>;
 
+    /// Build the op with an inspector.
     fn build_op_with_inspector<INSP>(
         self,
         inspector: INSP,
@@ -27,7 +28,7 @@ where
     TX: OpTxTr,
     CFG: Cfg<Spec = OpSpecId>,
     DB: Database,
-    JOURNAL: Journal<Database = DB, FinalOutput = (EvmState, Vec<Log>)>,
+    JOURNAL: JournalTr<Database = DB, FinalOutput = JournalOutput>,
 {
     type Context = Self;
 
@@ -42,6 +43,3 @@ where
         OpEvm::new(self, inspector)
     }
 }
-
-pub type OpContext<DB> =
-    Context<BlockEnv, OpTransaction<TxEnv>, CfgEnv<OpSpecId>, DB, JournaledState<DB>, L1BlockInfo>;

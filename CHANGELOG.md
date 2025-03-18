@@ -1,5 +1,102 @@
 Because this is workspace with multi libraries, tags will be simplified, and with this document you can match version of project with git tag.
 
+# v63 tag
+date: 16.03.2025
+
+Docs, prep for v20.0.0 release.
+
+* `revm-primitives`: 16.0.0-alpha.3 -> 16.0.0-alpha.4 (✓ API compatible changes)
+* `revm-bytecode`: 1.0.0-alpha.3 -> 1.0.0-alpha.4 (⚠️ API breaking changes)
+* `revm-context-interface`: 1.0.0-alpha.4 -> 1.0.0-alpha.5 (✓ API compatible changes)
+* `revm-context`: 1.0.0-alpha.4 -> 1.0.0-alpha.5 (✓ API compatible changes)
+* `revm-precompile`: 17.0.0-alpha.5 -> 17.0.0-alpha.6 (✓ API compatible changes)
+* `revm-handler`: 1.0.0-alpha.5 -> 1.0.0-alpha.6 (✓ API compatible changes)
+* `revm-inspector`: 1.0.0-alpha.5 -> 1.0.0-alpha.6 (✓ API compatible changes)
+* `op-revm`: 1.0.0-alpha.4 -> 1.0.0-alpha.5 (⚠️ API breaking changes)
+* `revm-state`: 1.0.0-alpha.3 -> 1.0.0-alpha.4
+* `revm-database-interface`: 1.0.0-alpha.3 -> 1.0.0-alpha.4
+* `revm-database`: 1.0.0-alpha.3 -> 1.0.0-alpha.4
+* `revm-interpreter`: 16.0.0-alpha.5 -> 16.0.0-alpha.6
+* `revm`: 20.0.0-alpha.5 -> 20.0.0-alpha.6
+* `revme`: 3.0.0-alpha.5 -> 3.0.0-alpha.6
+
+# v62 tag
+date: 12.03.2025
+
+A few small breaking changed in preparation for v20.0.0.
+
+* `revm-context-interface`: 1.0.0-alpha.3 -> 1.0.0-alpha.4
+* `revm-context`: 1.0.0-alpha.3 -> 1.0.0-alpha.4
+* `revm-interpreter`: 16.0.0-alpha.4 -> 16.0.0-alpha.5
+* `revm-handler`: 1.0.0-alpha.4 -> 1.0.0-alpha.5
+* `revm-inspector`: 1.0.0-alpha.4 -> 1.0.0-alpha.5
+* `revme`: 3.0.0-alpha.4 -> 3.0.0-alpha.5
+* `op-revm`: 1.0.0-alpha.3 -> 1.0.0-alpha.4
+* `revm-precompile`: 17.0.0-alpha.4 -> 17.0.0-alpha.5
+* `revm`: 20.0.0-alpha.4 -> 20.0.0-alpha.5
+
+# v61 tag
+date: 11.03.2025
+
+Bug fixes for op-revm.
+
+* `revm-primitives`: 16.0.0-alpha.2 -> 16.0.0-alpha.3
+* `revm-bytecode`: 1.0.0-alpha.2 -> 1.0.0-alpha.3
+* `revm-state`: 1.0.0-alpha.2 -> 1.0.0-alpha.3
+* `revm-database-interface`: 1.0.0-alpha.2 -> 1.0.0-alpha.3
+* `revm-context-interface`: 1.0.0-alpha.2 -> 1.0.0-alpha.3
+* `revm-context`: 1.0.0-alpha.2 -> 1.0.0-alpha.3
+* `revm-database`: 1.0.0-alpha.2 -> 1.0.0-alpha.3
+* `revm-interpreter`: 16.0.0-alpha.3 -> 16.0.0-alpha.4
+* `revm-precompile`: 17.0.0-alpha.3 -> 17.0.0-alpha.4
+* `revm-handler`: 1.0.0-alpha.3 -> 1.0.0-alpha.4
+* `revm-inspector`: 1.0.0-alpha.3 -> 1.0.0-alpha.4
+* `revm`: 20.0.0-alpha.3 -> 20.0.0-alpha.4
+* `revme`: 3.0.0-alpha.3 -> 3.0.0-alpha.4
+* `op-revm`: 1.0.0-alpha.2 -> 1.0.0-alpha.3
+* `revm-statetest-types`: 1.0.0-alpha.3 -> 1.0.0-alpha.4
+
+# v60 tag
+date: 10.03.2025
+
+Bug fix on blockhash opcode.
+
+* `revm-interpreter`: 16.0.0-alpha.2 -> 16.0.0-alpha.3
+* `revm-precompile`: 17.0.0-alpha.2 -> 17.0.0-alpha.3
+* `revm`: 20.0.0-alpha.2 -> 20.0.0-alpha.3
+* `revm-handler`: 1.0.0-alpha.2 -> 1.0.0-alpha.3
+* `revm-inspector`: 1.0.0-alpha.2 -> 1.0.0-alpha.3
+* `revm-statetest-types`: 1.0.0-alpha.2 -> 1.0.0-alpha.3
+* `revme`: 3.0.0-alpha.2 -> 3.0.0-alpha.3
+* `op-revm`: 1.0.0-alpha.1 -> 1.0.0-alpha.2
+
+
+# v59 tag
+date: 10.03.2025
+
+* Few bugs fixes mostly for optimism crate.
+* remv-optimism renamed to op-revm.
+* revm-specification files moved to revm-primitives
+* docs, initial book and cleanup.
+
+Versions:
+
+* `revm-primitives`: 16.0.0-alpha.1 -> 16.0.0-alpha.2
+* `revm-bytecode`: 1.0.0-alpha.1 -> 1.0.0-alpha.2
+* `revm-state`: 1.0.0-alpha.1 -> 1.0.0-alpha.2
+* `revm-database-interface`: 1.0.0-alpha.1 -> 1.0.0-alpha.2
+* `revm-context-interface`: 1.0.0-alpha.1 -> 1.0.0-alpha.2
+* `revm-context`: 1.0.0-alpha.1 -> 1.0.0-alpha.2
+* `revm-database`: 1.0.0-alpha.1 -> 1.0.0-alpha.2
+* `revm-interpreter`: 16.0.0-alpha.1 -> 16.0.0-alpha.2
+* `revm-precompile`: 17.0.0-alpha.1 -> 17.0.0-alpha.2
+* `revm-handler`: 1.0.0-alpha.1 -> 1.0.0-alpha.2
+* `revm-inspector`: 1.0.0-alpha.1 -> 1.0.0-alpha.2
+* `revm`: 20.0.0-alpha.1 -> 20.0.0-alpha.2
+* `revm-statetest-types`: 1.0.0-alpha.1 -> 1.0.0-alpha.2
+* `revme`: 3.0.0-alpha.1 -> 3.0.0-alpha.2
+* `op-revm`: 1.0.0-alpha.1
+
 # v57 tag
 date 16.02.2025
 

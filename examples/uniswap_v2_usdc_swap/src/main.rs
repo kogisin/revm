@@ -5,11 +5,11 @@ use alloy_eips::BlockId;
 use alloy_provider::{network::Ethereum, DynProvider, Provider, ProviderBuilder};
 use alloy_sol_types::{sol, SolCall, SolValue};
 use anyhow::{anyhow, Result};
-use database::{AlloyDB, CacheDB};
 use revm::{
     context_interface::result::{ExecutionResult, Output},
+    database::{AlloyDB, CacheDB},
     database_interface::WrapDatabaseAsync,
-    primitives::{address, keccak256, Address, Bytes, TxKind, U256},
+    primitives::{address, keccak256, Address, Bytes, TxKind, KECCAK_EMPTY, U256},
     state::AccountInfo,
     Context, ExecuteCommitEvm, ExecuteEvm, MainBuilder, MainContext,
 };
@@ -21,7 +21,7 @@ type AlloyCacheDB = CacheDB<WrapDatabaseAsync<AlloyDB<Ethereum, DynProvider>>>;
 async fn main() -> Result<()> {
     // Initialize the Alloy provider and database
     let rpc_url = "https://mainnet.infura.io/v3/c60b0bb42f8a4c6481ecd229eddaca27";
-    let provider = ProviderBuilder::new().on_builtin(rpc_url).await?.erased();
+    let provider = ProviderBuilder::new().connect(rpc_url).await?.erased();
 
     let alloy_db = WrapDatabaseAsync::new(AlloyDB::new(provider, BlockId::latest())).unwrap();
     let mut cache_db = CacheDB::new(alloy_db);
@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
     let acc_info = AccountInfo {
         nonce: 0_u64,
         balance: one_ether,
-        code_hash: keccak256(Bytes::new()),
+        code_hash: KECCAK_EMPTY,
         code: None,
     };
     cache_db.insert_account_info(account, acc_info);
@@ -102,7 +102,7 @@ fn balance_of(token: Address, address: Address, alloy_db: &mut AlloyCacheDB) -> 
         })
         .build_mainnet();
 
-    let ref_tx = evm.transact_previous().unwrap();
+    let ref_tx = evm.replay().unwrap();
     let result = ref_tx.result;
 
     let value = match result {
@@ -146,7 +146,7 @@ async fn get_amount_out(
         })
         .build_mainnet();
 
-    let ref_tx = evm.transact_previous().unwrap();
+    let ref_tx = evm.replay().unwrap();
     let result = ref_tx.result;
 
     let value = match result {
@@ -179,7 +179,7 @@ fn get_reserves(pair_address: Address, cache_db: &mut AlloyCacheDB) -> Result<(U
         })
         .build_mainnet();
 
-    let ref_tx = evm.transact_previous().unwrap();
+    let ref_tx = evm.replay().unwrap();
     let result = ref_tx.result;
 
     let value = match result {
@@ -229,7 +229,7 @@ fn swap(
         })
         .build_mainnet();
 
-    let ref_tx = evm.transact_commit_previous().unwrap();
+    let ref_tx = evm.replay_commit().unwrap();
 
     match ref_tx {
         ExecutionResult::Success { .. } => {}
@@ -262,7 +262,7 @@ fn transfer(
         })
         .build_mainnet();
 
-    let ref_tx = evm.transact_commit_previous().unwrap();
+    let ref_tx = evm.replay_commit().unwrap();
     let success: bool = match ref_tx {
         ExecutionResult::Success {
             output: Output::Call(value),

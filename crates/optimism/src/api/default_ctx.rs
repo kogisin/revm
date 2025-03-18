@@ -2,34 +2,24 @@ use crate::{L1BlockInfo, OpSpecId, OpTransaction};
 use revm::{
     context::{BlockEnv, CfgEnv, TxEnv},
     database_interface::EmptyDB,
-    Context, JournaledState, MainContext,
+    Context, Journal, MainContext,
 };
 
+/// Type alias for the default context type of the OpEvm.
+pub type OpContext<DB> =
+    Context<BlockEnv, OpTransaction<TxEnv>, CfgEnv<OpSpecId>, DB, Journal<DB>, L1BlockInfo>;
+
+/// Trait that allows for a default context to be created.
 pub trait DefaultOp {
-    fn op() -> Context<
-        BlockEnv,
-        OpTransaction<TxEnv>,
-        CfgEnv<OpSpecId>,
-        EmptyDB,
-        JournaledState<EmptyDB>,
-        L1BlockInfo,
-    >;
+    /// Create a default context.
+    fn op() -> OpContext<EmptyDB>;
 }
 
-impl DefaultOp
-    for Context<
-        BlockEnv,
-        OpTransaction<TxEnv>,
-        CfgEnv<OpSpecId>,
-        EmptyDB,
-        JournaledState<EmptyDB>,
-        L1BlockInfo,
-    >
-{
+impl DefaultOp for OpContext<EmptyDB> {
     fn op() -> Self {
         Context::mainnet()
             .with_tx(OpTransaction::default())
-            .with_cfg(CfgEnv::new().with_spec(OpSpecId::BEDROCK))
+            .with_cfg(CfgEnv::new_with_spec(OpSpecId::BEDROCK))
             .with_chain(L1BlockInfo::default())
     }
 }
@@ -38,8 +28,10 @@ impl DefaultOp
 mod test {
     use super::*;
     use crate::api::builder::OpBuilder;
-    use inspector::{InspectEvm, NoOpInspector};
-    use revm::ExecuteEvm;
+    use revm::{
+        inspector::{InspectEvm, NoOpInspector},
+        ExecuteEvm,
+    };
 
     #[test]
     fn default_run_op() {
@@ -47,8 +39,8 @@ mod test {
         // convert to optimism context
         let mut evm = ctx.build_op_with_inspector(NoOpInspector {});
         // execute
-        let _ = evm.transact_previous();
+        let _ = evm.replay();
         // inspect
-        let _ = evm.inspect_previous();
+        let _ = evm.inspect_replay();
     }
 }

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.4](https://github.com/bluealloy/revm/compare/revm-database-v1.0.0-alpha.3...revm-database-v1.0.0-alpha.4) - 2025-03-16
+
+### Other
+
+- updated the following local packages: revm-primitives, revm-bytecode
+
+## [1.0.0-alpha.3](https://github.com/bluealloy/revm/compare/revm-database-v1.0.0-alpha.2...revm-database-v1.0.0-alpha.3) - 2025-03-11
+
+### Fixed
+
+- correct propagate features ([#2177](https://github.com/bluealloy/revm/pull/2177))
+
+### Other
+
+- bump alloy ([#2183](https://github.com/bluealloy/revm/pull/2183))
+
+## [1.0.0-alpha.2](https://github.com/bluealloy/revm/compare/revm-database-v1.0.0-alpha.1...revm-database-v1.0.0-alpha.2) - 2025-03-10
+
+### Fixed
+
+- use correct HashMap import ([#2148](https://github.com/bluealloy/revm/pull/2148))
+- *(op)* Handler deposit tx halt, catch_error handle ([#2144](https://github.com/bluealloy/revm/pull/2144))
+
+### Other
+
+- *(db)* separate fields from `CacheDB` into `Cache` ([#2131](https://github.com/bluealloy/revm/pull/2131))
+- PrecompileErrors to PrecompileError ([#2103](https://github.com/bluealloy/revm/pull/2103))
+- *(deps)* bump breaking deps ([#2093](https://github.com/bluealloy/revm/pull/2093))
+- move all dependencies to workspace ([#2092](https://github.com/bluealloy/revm/pull/2092))
+- re-export all crates from `revm` ([#2088](https://github.com/bluealloy/revm/pull/2088))
+
 ## [1.0.0-alpha.1](https://github.com/bluealloy/revm/releases/tag/revm-database-v1.0.0-alpha.1) - 2025-02-16
 
 ### Added

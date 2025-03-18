@@ -1,15 +1,11 @@
 use crate::{InspectorEvmTr, InspectorFrame};
 use auto_impl::auto_impl;
-use context::{
-    result::ResultAndState, Cfg, ContextTr, Database, JournalEntry, JournaledState, Transaction,
-};
-use handler::{
-    execution, EvmTr, Frame, FrameInitOrResult, FrameOrResult, FrameResult, Handler, ItemOrResult,
-};
+use context::{result::ResultAndState, ContextTr, Database, Journal, JournalEntry, Transaction};
+use handler::{EvmTr, Frame, FrameInitOrResult, FrameOrResult, FrameResult, Handler, ItemOrResult};
 use interpreter::{
+    instructions::InstructionTable,
     interpreter::EthInterpreter,
     interpreter_types::{Jumps, LoopControl},
-    table::InstructionTable,
     CallInputs, CallOutcome, CreateInputs, CreateOutcome, EOFCreateInputs, FrameInput, Host,
     InitialAndFloorGas, InstructionResult, Interpreter, InterpreterAction, InterpreterTypes,
 };
@@ -17,7 +13,7 @@ use primitives::{Address, Log, U256};
 use state::EvmState;
 use std::{vec, vec::Vec};
 
-/// EVM [Interpreter] callbacks.
+/// EVM hooks into execution.
 #[auto_impl(&mut, Box)]
 pub trait Inspector<CTX, INTR: InterpreterTypes = EthInterpreter> {
     /// Called before the interpreter is initialized.
@@ -157,7 +153,7 @@ pub trait JournalExt {
     fn evm_state_mut(&mut self) -> &mut EvmState;
 }
 
-impl<DB: Database> JournalExt for JournaledState<DB> {
+impl<DB: Database> JournalExt for Journal<DB> {
     #[inline]
     fn logs(&self) -> &[Log] {
         &self.logs
@@ -191,6 +187,16 @@ where
         &mut self,
         evm: &mut Self::Evm,
     ) -> Result<ResultAndState<Self::HaltReason>, Self::Error> {
+        match self.inspect_run_without_catch_error(evm) {
+            Ok(output) => Ok(output),
+            Err(e) => self.catch_error(evm, e),
+        }
+    }
+
+    fn inspect_run_without_catch_error(
+        &mut self,
+        evm: &mut Self::Evm,
+    ) -> Result<ResultAndState<Self::HaltReason>, Self::Error> {
         let init_and_floor_gas = self.validate(evm)?;
         let eip7702_refund = self.pre_execution(evm)? as i64;
         let exec_result = self.inspect_execution(evm, &init_and_floor_gas);
@@ -205,7 +211,9 @@ where
         let gas_limit = evm.ctx().tx().gas_limit() - init_and_floor_gas.initial_gas;
 
         // Create first frame action
-        let first_frame = self.inspect_create_first_frame(evm, gas_limit)?;
+        let first_frame_input = self.first_frame_input(evm, gas_limit)?;
+        let first_frame = self.inspect_first_frame_init(evm, first_frame_input)?;
+
         let mut frame_result = match first_frame {
             ItemOrResult::Item(frame) => self.inspect_run_exec_loop(evm, frame)?,
             ItemOrResult::Result(result) => result,
@@ -215,20 +223,8 @@ where
         Ok(frame_result)
     }
 
-    /* EXECUTION */
-    fn inspect_create_first_frame(
-        &mut self,
-        evm: &mut Self::Evm,
-        gas_limit: u64,
-    ) -> Result<FrameOrResult<Self::Frame>, Self::Error> {
-        let ctx = evm.ctx_ref();
-        let init_frame = execution::create_init_frame(ctx.tx(), ctx.cfg().spec().into(), gas_limit);
-        self.inspect_frame_init_first(evm, init_frame)
-    }
-
     /* FRAMES */
-
-    fn inspect_frame_init_first(
+    fn inspect_first_frame_init(
         &mut self,
         evm: &mut Self::Evm,
         mut frame_input: <Self::Frame as Frame>::FrameInit,
@@ -237,7 +233,7 @@ where
         if let Some(output) = frame_start(ctx, inspector, &mut frame_input) {
             return Ok(ItemOrResult::Result(output));
         }
-        let mut ret = self.frame_init_first(evm, frame_input.clone());
+        let mut ret = self.first_frame_init(evm, frame_input.clone());
 
         // only if new frame is created call initialize_interp hook.
         if let Ok(ItemOrResult::Item(frame)) = &mut ret {

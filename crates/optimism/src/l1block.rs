@@ -11,8 +11,7 @@ use crate::{
 };
 use core::ops::Mul;
 use revm::{
-    database_interface::Database, interpreter::Gas, primitives::U256,
-    specification::hardfork::SpecId,
+    database_interface::Database, interpreter::Gas, primitives::hardfork::SpecId, primitives::U256,
 };
 
 /// L1 block info
@@ -28,6 +27,9 @@ use revm::{
 /// For now, we only care about the fields necessary for L1 cost calculation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct L1BlockInfo {
+    /// The L2 block number. If not same as the one in the context,
+    /// L1BlockInfo is not valid and will be reloaded from the database.
+    pub l2_block: u64,
     /// The base fee of the L1 origin block.
     pub l1_base_fee: U256,
     /// The current L1 fee overhead. None if Ecotone is activated.
@@ -52,6 +54,7 @@ impl L1BlockInfo {
     /// Try to fetch the L1 block info from the database.
     pub fn try_fetch<DB: Database>(
         db: &mut DB,
+        l2_block: u64,
         spec_id: OpSpecId,
     ) -> Result<L1BlockInfo, DB::Error> {
         // Ensure the L1 Block account is loaded into the cache after Ecotone. With EIP-4788, it is no longer the case
@@ -116,6 +119,7 @@ impl L1BlockInfo {
                         .as_ref(),
                 );
                 Ok(L1BlockInfo {
+                    l2_block,
                     l1_base_fee,
                     l1_base_fee_scalar,
                     l1_blob_base_fee: Some(l1_blob_base_fee),
@@ -146,7 +150,7 @@ impl L1BlockInfo {
     /// Introduced in isthmus. Prior to isthmus, the operator fee is always zero.
     pub fn operator_fee_charge(&self, input: &[u8], gas_limit: U256) -> U256 {
         // If the input is a deposit transaction or empty, the default value is zero.
-        if input.is_empty() || input.first() == Some(&0x7F) {
+        if input.is_empty() || input.first() == Some(&0x7E) {
             return U256::ZERO;
         }
         let operator_fee_scalar = self
@@ -231,7 +235,7 @@ impl L1BlockInfo {
             return tx_l1_cost;
         }
         // If the input is a deposit transaction or empty, the default value is zero.
-        let tx_l1_cost = if input.is_empty() || input.first() == Some(&0x7F) {
+        let tx_l1_cost = if input.is_empty() || input.first() == Some(&0x7E) {
             return U256::ZERO;
         } else if spec_id.is_enabled_in(OpSpecId::FJORD) {
             self.calculate_tx_l1_cost_fjord(input)
@@ -394,8 +398,8 @@ mod tests {
         assert_eq!(gas_cost, U256::ZERO);
         l1_block_info.clear_tx_l1_cost();
 
-        // Deposit transactions with the EIP-2718 type of 0x7F should result in zero
-        let input = bytes!("7FFACADE");
+        // Deposit transactions with the EIP-2718 type of 0x7E should result in zero
+        let input = bytes!("7EFACADE");
         let gas_cost = l1_block_info.calculate_tx_l1_cost(&input, OpSpecId::REGOLITH);
         assert_eq!(gas_cost, U256::ZERO);
     }
@@ -425,8 +429,8 @@ mod tests {
         assert_eq!(gas_cost, U256::ZERO);
         l1_block_info.clear_tx_l1_cost();
 
-        // Deposit transactions with the EIP-2718 type of 0x7F should result in zero
-        let input = bytes!("7FFACADE");
+        // Deposit transactions with the EIP-2718 type of 0x7E should result in zero
+        let input = bytes!("7EFACADE");
         let gas_cost = l1_block_info.calculate_tx_l1_cost(&input, OpSpecId::ECOTONE);
         assert_eq!(gas_cost, U256::ZERO);
         l1_block_info.clear_tx_l1_cost();
@@ -525,8 +529,8 @@ mod tests {
         assert_eq!(gas_cost, U256::ZERO);
         l1_block_info.clear_tx_l1_cost();
 
-        // Deposit transactions with the EIP-2718 type of 0x7F should result in zero
-        let input = bytes!("7FFACADE");
+        // Deposit transactions with the EIP-2718 type of 0x7E should result in zero
+        let input = bytes!("7EFACADE");
         let gas_cost = l1_block_info.calculate_tx_l1_cost(&input, OpSpecId::FJORD);
         assert_eq!(gas_cost, U256::ZERO);
     }

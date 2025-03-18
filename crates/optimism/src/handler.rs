@@ -1,8 +1,6 @@
 //!Handler related to Optimism chain
-
-pub mod precompiles;
-
 use crate::{
+    api::exec::OpContextTr,
     constants::{BASE_FEE_RECIPIENT, L1_FEE_RECIPIENT, OPERATOR_FEE_RECIPIENT},
     transaction::{
         deposit::{DepositTransaction, DEPOSIT_TRANSACTION_TYPE},
@@ -10,25 +8,22 @@ use crate::{
     },
     L1BlockInfo, OpHaltReason, OpSpecId,
 };
-use inspector::{Inspector, InspectorEvmTr, InspectorFrame, InspectorHandler};
-use precompile::Log;
 use revm::{
     context_interface::{
         result::{EVMError, ExecutionResult, FromStringError, ResultAndState},
-        Block, Cfg, ContextTr, Journal, Transaction,
+        Block, Cfg, ContextTr, JournalTr, Transaction,
     },
     handler::{
-        handler::{EvmTr, EvmTrError},
-        validation::validate_tx_against_account,
-        Frame, FrameResult, Handler, MainnetHandler,
+        handler::EvmTrError, validation::validate_tx_against_account, EvmTr, Frame, FrameResult,
+        Handler, MainnetHandler,
     },
+    inspector::{Inspector, InspectorEvmTr, InspectorFrame, InspectorHandler},
     interpreter::{interpreter::EthInterpreter, FrameInput, Gas},
-    primitives::{hash_map::HashMap, U256},
-    specification::hardfork::SpecId,
-    state::{Account, EvmState},
+    primitives::hardfork::SpecId,
+    primitives::{HashMap, U256},
+    state::Account,
     Database,
 };
-use std::vec::Vec;
 
 pub struct OpHandler<EVM, ERROR, FRAME> {
     pub mainnet: MainnetHandler<EVM, ERROR, FRAME>,
@@ -62,14 +57,7 @@ impl<DB, TX> IsTxError for EVMError<DB, TX> {
 
 impl<EVM, ERROR, FRAME> Handler for OpHandler<EVM, ERROR, FRAME>
 where
-    EVM: EvmTr<
-        Context: ContextTr<
-            Journal: Journal<FinalOutput = (EvmState, Vec<Log>)>,
-            Tx: OpTxTr,
-            Cfg: Cfg<Spec = OpSpecId>,
-            Chain = L1BlockInfo,
-        >,
-    >,
+    EVM: EvmTr<Context: OpContextTr>,
     ERROR: EvmTrError<EVM> + From<OpTransactionError> + FromStringError + IsTxError,
     // TODO `FrameResult` should be a generic trait.
     // TODO `FrameInit` should be a generic.
@@ -99,15 +87,25 @@ where
 
     fn validate_tx_against_state(&self, evm: &mut Self::Evm) -> Result<(), Self::Error> {
         let context = evm.ctx();
+        let spec = context.cfg().spec();
+        let block_number = context.block().number();
         if context.tx().tx_type() == DEPOSIT_TRANSACTION_TYPE {
             return Ok(());
+        } else {
+            // The L1-cost fee is only computed for Optimism non-deposit transactions.
+            if context.chain().l2_block != block_number {
+                // L1 block info is stored in the context for later use.
+                // and it will be reloaded from the database if it is not for the current block.
+                *context.chain() = L1BlockInfo::try_fetch(context.db(), block_number, spec)?;
+            }
         }
-        let spec = context.cfg().spec();
+
         let enveloped_tx = context
             .tx()
             .enveloped_tx()
             .expect("all not deposit tx have enveloped tx")
             .clone();
+
         // compute L1 cost
         let mut additional_cost = context.chain().calculate_tx_l1_cost(&enveloped_tx, spec);
 
@@ -128,20 +126,6 @@ where
 
         validate_tx_against_account(&account, context, additional_cost)?;
         Ok(())
-    }
-
-    fn load_accounts(&self, evm: &mut Self::Evm) -> Result<(), Self::Error> {
-        // The L1-cost fee is only computed for Optimism non-deposit transactions.
-        let spec = evm.ctx().cfg().spec();
-        if evm.ctx().tx().tx_type() != DEPOSIT_TRANSACTION_TYPE {
-            let l1_block_info: crate::L1BlockInfo =
-                super::L1BlockInfo::try_fetch(evm.ctx().db(), spec)?;
-
-            // Storage L1 block info for later use.
-            *evm.ctx().chain() = l1_block_info;
-        }
-
-        self.mainnet.load_accounts(evm)
     }
 
     fn deduct_caller(&self, evm: &mut Self::Evm) -> Result<(), Self::Error> {
@@ -369,7 +353,6 @@ where
             // Send the operator fee of the transaction to the coinbase.
             let mut operator_fee_vault_account =
                 evm.ctx().journal().load_account(OPERATOR_FEE_RECIPIENT)?;
-
             operator_fee_vault_account.mark_touch();
             operator_fee_vault_account.data.info.balance += operator_fee_cost;
         }
@@ -392,91 +375,83 @@ where
                 return Err(ERROR::from(OpTransactionError::HaltedDepositPostRegolith));
             }
         }
+        evm.ctx().chain().clear_tx_l1_cost();
         Ok(result)
     }
 
-    fn end(
+    fn catch_error(
         &self,
         evm: &mut Self::Evm,
-        end_output: Result<ResultAndState<Self::HaltReason>, Self::Error>,
+        error: Self::Error,
     ) -> Result<ResultAndState<Self::HaltReason>, Self::Error> {
-        //end_output
-
         let is_deposit = evm.ctx().tx().tx_type() == DEPOSIT_TRANSACTION_TYPE;
-        end_output.or_else(|err| {
-            if err.is_tx_error() && is_deposit {
-                let ctx = evm.ctx();
-                let spec = ctx.cfg().spec();
-                let tx = ctx.tx();
-                let caller = tx.caller();
-                let mint = tx.mint();
-                let is_system_tx = tx.is_system_transaction();
-                let gas_limit = tx.gas_limit();
-                // If the transaction is a deposit transaction and it failed
-                // for any reason, the caller nonce must be bumped, and the
-                // gas reported must be altered depending on the Hardfork. This is
-                // also returned as a special Halt variant so that consumers can more
-                // easily distinguish between a failed deposit and a failed
-                // normal transaction.
+        let output = if error.is_tx_error() && is_deposit {
+            let ctx = evm.ctx();
+            let spec = ctx.cfg().spec();
+            let tx = ctx.tx();
+            let caller = tx.caller();
+            let mint = tx.mint();
+            let is_system_tx = tx.is_system_transaction();
+            let gas_limit = tx.gas_limit();
+            // If the transaction is a deposit transaction and it failed
+            // for any reason, the caller nonce must be bumped, and the
+            // gas reported must be altered depending on the Hardfork. This is
+            // also returned as a special Halt variant so that consumers can more
+            // easily distinguish between a failed deposit and a failed
+            // normal transaction.
 
-                // Increment sender nonce and account balance for the mint amount. Deposits
-                // always persist the mint amount, even if the transaction fails.
-                let account = {
-                    let mut acc = Account::from(
-                        evm.ctx()
-                            .db()
-                            .basic(caller)
-                            .unwrap_or_default()
-                            .unwrap_or_default(),
-                    );
-                    acc.info.nonce = acc.info.nonce.saturating_add(1);
-                    acc.info.balance = acc
-                        .info
-                        .balance
-                        .saturating_add(U256::from(mint.unwrap_or_default()));
-                    acc.mark_touch();
-                    acc
-                };
-                let state = HashMap::from_iter([(caller, account)]);
+            // Increment sender nonce and account balance for the mint amount. Deposits
+            // always persist the mint amount, even if the transaction fails.
+            let account = {
+                let mut acc = Account::from(
+                    evm.ctx()
+                        .db()
+                        .basic(caller)
+                        .unwrap_or_default()
+                        .unwrap_or_default(),
+                );
+                acc.info.nonce = acc.info.nonce.saturating_add(1);
+                acc.info.balance = acc
+                    .info
+                    .balance
+                    .saturating_add(U256::from(mint.unwrap_or_default()));
+                acc.mark_touch();
+                acc
+            };
+            let state = HashMap::from_iter([(caller, account)]);
 
-                // The gas used of a failed deposit post-regolith is the gas
-                // limit of the transaction. pre-regolith, it is the gas limit
-                // of the transaction for non system transactions and 0 for system
-                // transactions.
-                let gas_used = if spec.is_enabled_in(OpSpecId::REGOLITH) || !is_system_tx {
-                    gas_limit
-                } else {
-                    0
-                };
-
-                Ok(ResultAndState {
-                    result: ExecutionResult::Halt {
-                        reason: OpHaltReason::FailedDeposit,
-                        gas_used,
-                    },
-                    state,
-                })
+            // The gas used of a failed deposit post-regolith is the gas
+            // limit of the transaction. pre-regolith, it is the gas limit
+            // of the transaction for non system transactions and 0 for system
+            // transactions.
+            let gas_used = if spec.is_enabled_in(OpSpecId::REGOLITH) || !is_system_tx {
+                gas_limit
             } else {
-                Err(err)
-            }
-        })
-    }
-
-    fn clear(&self, evm: &mut Self::Evm) {
+                0
+            };
+            // clear the journal
+            Ok(ResultAndState {
+                result: ExecutionResult::Halt {
+                    reason: OpHaltReason::FailedDeposit,
+                    gas_used,
+                },
+                state,
+            })
+        } else {
+            Err(error)
+        };
+        // do cleanup
         evm.ctx().chain().clear_tx_l1_cost();
-        self.mainnet.clear(evm);
+        evm.ctx().journal().clear();
+
+        output
     }
 }
 
 impl<EVM, ERROR, FRAME> InspectorHandler for OpHandler<EVM, ERROR, FRAME>
 where
     EVM: InspectorEvmTr<
-        Context: ContextTr<
-            Journal: Journal<FinalOutput = (EvmState, Vec<Log>)>,
-            Tx: OpTxTr,
-            Cfg: Cfg<Spec = OpSpecId>,
-            Chain = L1BlockInfo,
-        >,
+        Context: OpContextTr,
         Inspector: Inspector<<<Self as Handler>::Evm as EvmTr>::Context, EthInterpreter>,
     >,
     ERROR: EvmTrError<EVM> + From<OpTransactionError> + FromStringError + IsTxError,
@@ -495,13 +470,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{DefaultOp, OpBuilder, OpContext};
-
     use super::*;
-    use database::InMemoryDB;
+    use crate::{api::default_ctx::OpContext, DefaultOp, OpBuilder};
     use revm::{
         context::Context,
         context_interface::result::InvalidTransaction,
+        database::InMemoryDB,
         database_interface::EmptyDB,
         handler::EthFrame,
         interpreter::{CallOutcome, InstructionResult, InterpreterResult},

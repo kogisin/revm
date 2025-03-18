@@ -7,14 +7,6 @@
 
 use std::{convert::Infallible, fmt::Debug};
 
-use database::InMemoryDB;
-use inspector::{
-    exec::{inspect_main, InspectEvm},
-    inspector_context::InspectorContext,
-    inspectors::TracerEip3155,
-    journal::JournalExt,
-    GetInspector, Inspector,
-};
 use revm::{
     bytecode::Bytecode,
     context::{BlockEnv, Cfg, CfgEnv, TxEnv},
@@ -27,10 +19,17 @@ use revm::{
     handler::{EthPrecompiles, PrecompileProvider},
     interpreter::{interpreter::EthInterpreter, CallInputs, CallOutcome, InterpreterResult},
     precompile::{Address, HashSet, B256},
-    primitives::{Log, U256},
-    specification::hardfork::SpecId,
+    primitives::{Log, U256,hardfork::SpecId},
     state::{Account, EvmState, TransientStorage},
     Context, Database, DatabaseCommit, JournalEntry, JournaledState, MainBuilder,
+     database::InMemoryDB,
+inspector::{
+    exec::{inspect_main, InspectEvm},
+    inspector_context::InspectorContext,
+    inspectors::TracerEip3155,
+    journal::JournalExt,
+    GetInspector, Inspector,
+},
 };
 
 /// Backend for cheatcodes.
@@ -56,7 +55,7 @@ impl Backend {
 
 impl Journal for Backend {
     type Database = InMemoryDB;
-    type FinalOutput = (EvmState, Vec<Log>);
+    type FinalOutput = JournalOutputs;
 
     fn new(database: InMemoryDB) -> Self {
         Self::new(SpecId::LATEST, database)
@@ -485,7 +484,7 @@ where
     //     InspectorT,
     //     Context<BlockTr TxT, CfgT, InMemoryDB, Backend>,
     // >::new(context, inspector);
-    let result = evm.inspect_previous(inspector)?;
+    let result = evm.inspect_replay(inspector)?;
     //let result = inspect_main(&mut inspector_context)?;
 
     // Persist the changes to the original backend.
@@ -526,7 +525,7 @@ fn main() -> anyhow::Result<()> {
     }
     .build_mainnet();
 
-    evm.inspect_previous(&mut inspector)?;
+    evm.inspect_replay(&mut inspector)?;
 
     // Sanity check
     assert_eq!(inspector.call_count, 2);

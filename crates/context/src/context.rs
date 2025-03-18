@@ -1,8 +1,11 @@
-use crate::{block::BlockEnv, cfg::CfgEnv, journaled_state::JournaledState, tx::TxEnv};
-use context_interface::{Block, Cfg, ContextTr, Journal, Transaction};
-use database_interface::{Database, EmptyDB};
+use crate::{block::BlockEnv, cfg::CfgEnv, journaled_state::Journal, tx::TxEnv};
+use context_interface::{
+    context::{ContextError, ContextSetters},
+    Block, Cfg, ContextTr, JournalTr, Transaction,
+};
+use database_interface::{Database, DatabaseRef, EmptyDB, WrapDatabaseRef};
 use derive_where::derive_where;
-use specification::hardfork::SpecId;
+use primitives::hardfork::SpecId;
 
 /// EVM context contains data that EVM needs for execution.
 #[derive_where(Clone, Debug; BLOCK, CFG, CHAIN, TX, DB, JOURNAL, <DB as Database>::Error)]
@@ -11,7 +14,7 @@ pub struct Context<
     TX = TxEnv,
     CFG = CfgEnv,
     DB: Database = EmptyDB,
-    JOURNAL: Journal<Database = DB> = JournaledState<DB>,
+    JOURNAL: JournalTr<Database = DB> = Journal<DB>,
     CHAIN = (),
 > {
     /// Block information.
@@ -25,7 +28,7 @@ pub struct Context<
     /// Inner context.
     pub chain: CHAIN,
     /// Error that happened during execution.
-    pub error: Result<(), <DB as Database>::Error>,
+    pub error: Result<(), ContextError<DB::Error>>,
 }
 
 impl<
@@ -33,7 +36,7 @@ impl<
         TX: Transaction,
         DB: Database,
         CFG: Cfg,
-        JOURNAL: Journal<Database = DB>,
+        JOURNAL: JournalTr<Database = DB>,
         CHAIN,
     > ContextTr for Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>
 {
@@ -76,12 +79,32 @@ impl<
         &mut self.chain
     }
 
-    fn error(&mut self) -> &mut Result<(), <Self::Db as Database>::Error> {
+    fn error(&mut self) -> &mut Result<(), ContextError<<Self::Db as Database>::Error>> {
         &mut self.error
     }
 
     fn tx_journal(&mut self) -> (&mut Self::Tx, &mut Self::Journal) {
         (&mut self.tx, &mut self.journaled_state)
+    }
+
+    // Keep Default Implementation for Instructions Host Interface
+}
+
+impl<
+        BLOCK: Block,
+        TX: Transaction,
+        DB: Database,
+        CFG: Cfg,
+        JOURNAL: JournalTr<Database = DB>,
+        CHAIN,
+    > ContextSetters for Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>
+{
+    fn set_tx(&mut self, tx: Self::Tx) {
+        self.tx = tx;
+    }
+
+    fn set_block(&mut self, block: Self::Block) {
+        self.block = block;
     }
 }
 
@@ -89,7 +112,7 @@ impl<
         BLOCK: Block + Default,
         TX: Transaction + Default,
         DB: Database,
-        JOURNAL: Journal<Database = DB>,
+        JOURNAL: JournalTr<Database = DB>,
         CHAIN: Default,
     > Context<BLOCK, TX, CfgEnv, DB, JOURNAL, CHAIN>
 {
@@ -116,9 +139,9 @@ where
     TX: Transaction,
     CFG: Cfg,
     DB: Database,
-    JOURNAL: Journal<Database = DB>,
+    JOURNAL: JournalTr<Database = DB>,
 {
-    pub fn with_new_journal<OJOURNAL: Journal<Database = DB>>(
+    pub fn with_new_journal<OJOURNAL: JournalTr<Database = DB>>(
         self,
         mut journal: OJOURNAL,
     ) -> Context<BLOCK, TX, CFG, DB, OJOURNAL, CHAIN> {
@@ -137,9 +160,27 @@ where
     pub fn with_db<ODB: Database>(
         self,
         db: ODB,
-    ) -> Context<BLOCK, TX, CFG, ODB, JournaledState<ODB>, CHAIN> {
+    ) -> Context<BLOCK, TX, CFG, ODB, Journal<ODB>, CHAIN> {
         let spec = self.cfg.spec().into();
-        let mut journaled_state = JournaledState::new(spec, db);
+        let mut journaled_state = Journal::new(spec, db);
+        journaled_state.set_spec_id(spec);
+        Context {
+            tx: self.tx,
+            block: self.block,
+            cfg: self.cfg,
+            journaled_state,
+            chain: self.chain,
+            error: Ok(()),
+        }
+    }
+
+    /// Creates a new context with a new `DatabaseRef` type.
+    pub fn with_ref_db<ODB: DatabaseRef>(
+        self,
+        db: ODB,
+    ) -> Context<BLOCK, TX, CFG, WrapDatabaseRef<ODB>, Journal<WrapDatabaseRef<ODB>>, CHAIN> {
+        let spec = self.cfg.spec().into();
+        let mut journaled_state = Journal::new(spec, WrapDatabaseRef(db));
         journaled_state.set_spec_id(spec);
         Context {
             tx: self.tx,
@@ -162,7 +203,6 @@ where
             error: Ok(()),
         }
     }
-
     /// Creates a new context with a new transaction type.
     pub fn with_tx<OTX: Transaction>(
         self,

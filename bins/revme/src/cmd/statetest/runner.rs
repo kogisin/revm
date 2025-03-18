@@ -14,8 +14,9 @@ use revm::{
         Cfg,
     },
     database_interface::EmptyDB,
-    primitives::{keccak256, Bytes, TxKind, B256},
-    specification::{eip4844::TARGET_BLOB_GAS_PER_BLOCK_CANCUN, hardfork::SpecId},
+    primitives::{
+        eip4844::TARGET_BLOB_GAS_PER_BLOCK_CANCUN, hardfork::SpecId, keccak256, Bytes, TxKind, B256,
+    },
     Context, ExecuteCommitEvm, MainBuilder, MainContext,
 };
 use serde_json::json;
@@ -446,7 +447,7 @@ pub fn execute_test_suite(
                     (e, res)
                 } else {
                     let timer = Instant::now();
-                    let res = evm.transact_commit_previous();
+                    let res = evm.replay_commit();
                     *elapsed.lock().unwrap() += timer.elapsed();
 
                     let spec = cfg.spec();

@@ -8,14 +8,13 @@ extern crate alloc as std;
 pub mod block;
 pub mod cfg;
 pub mod context;
-pub mod host;
 pub mod journaled_state;
 pub mod result;
 pub mod transaction;
 
 pub use block::Block;
 pub use cfg::{Cfg, CreateScheme, TransactTo};
-pub use context::ContextTr;
+pub use context::{ContextSetters, ContextTr};
 pub use database_interface::{DBErrorMarker, Database};
-pub use journaled_state::Journal;
+pub use journaled_state::JournalTr;
 pub use transaction::{Transaction, TransactionType};
