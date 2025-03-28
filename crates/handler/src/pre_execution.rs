@@ -13,12 +13,30 @@ use context_interface::{
 };
 use primitives::{eip7702, hardfork::SpecId, KECCAK_EMPTY, U256};
 
-pub fn load_accounts<CTX: ContextTr, ERROR: From<<CTX::Db as Database>::Error>>(
-    context: &mut CTX,
+use crate::{EvmTr, PrecompileProvider};
+
+pub fn load_accounts<
+    EVM: EvmTr<Precompiles: PrecompileProvider<EVM::Context>>,
+    ERROR: From<<<EVM::Context as ContextTr>::Db as Database>::Error>,
+>(
+    evm: &mut EVM,
 ) -> Result<(), ERROR> {
-    let spec = context.cfg().spec().into();
-    // Set journaling state flag.
+    let (context, precompiles) = evm.ctx_precompiles();
+
+    let gen_spec = context.cfg().spec();
+    let spec = gen_spec.clone().into();
+    // sets eth spec id in journal
     context.journal().set_spec_id(spec);
+    let precompiles_changed = precompiles.set_spec(gen_spec);
+    let empty_warmed_precompiles = context.journal().precompile_addresses().is_empty();
+
+    if precompiles_changed || empty_warmed_precompiles {
+        // load new precompile addresses into journal.
+        // When precompiles addresses are changed we reset the warmed hashmap to those new addresses.
+        context
+            .journal()
+            .warm_precompiles(precompiles.warm_addresses().collect());
+    }
 
     // Load coinbase
     // EIP-3651: Warm COINBASE. Starts the `COINBASE` address warm
@@ -32,10 +50,15 @@ pub fn load_accounts<CTX: ContextTr, ERROR: From<<CTX::Db as Database>::Error>>(
     if let Some(access_list) = tx.access_list() {
         for item in access_list {
             let address = item.address();
-            let storage = item.storage_slots();
-
-            journal
-                .warm_account_and_storage(*address, storage.map(|i| U256::from_be_bytes(i.0)))?;
+            let mut storage = item.storage_slots().peekable();
+            if storage.peek().is_none() {
+                journal.warm_account(*address);
+            } else {
+                journal.warm_account_and_storage(
+                    *address,
+                    storage.map(|i| U256::from_be_bytes(i.0)),
+                )?;
+            }
         }
     }
 
@@ -49,6 +72,9 @@ pub fn deduct_caller<CTX: ContextTr>(
     let basefee = context.block().basefee();
     let blob_price = context.block().blob_gasprice().unwrap_or_default();
     let effective_gas_price = context.tx().effective_gas_price(basefee as u128);
+    let is_balance_check_disabled = context.cfg().is_balance_check_disabled();
+    let value = context.tx().value();
+
     // Subtract gas costs from the caller's account.
     // We need to saturate the gas cost to prevent underflow in case that `disable_balance_check` is enabled.
     let mut gas_cost = (context.tx().gas_limit() as u128).saturating_mul(effective_gas_price);
@@ -69,6 +95,11 @@ pub fn deduct_caller<CTX: ContextTr>(
         .info
         .balance
         .saturating_sub(U256::from(gas_cost));
+
+    if is_balance_check_disabled {
+        // Make sure the caller's balance is at least the value of the transaction.
+        caller_account.info.balance = value.max(caller_account.info.balance);
+    }
 
     // Bump the nonce for calls. Nonce for CREATE will be bumped in `handle_create`.
     if is_call {

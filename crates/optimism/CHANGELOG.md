@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0](https://github.com/bluealloy/revm/compare/op-revm-v1.0.0...op-revm-v2.0.0) - 2025-03-28
+
+### Added
+
+- cache precompile warming ([#2317](https://github.com/bluealloy/revm/pull/2317))
+- Add arkworks wrapper for bls12-381 ([#2316](https://github.com/bluealloy/revm/pull/2316))
+- provide more context to precompiles ([#2318](https://github.com/bluealloy/revm/pull/2318))
+- Add a wrapper for arkworks for EIP196 ([#2305](https://github.com/bluealloy/revm/pull/2305))
+
+### Fixed
+
+- *(isthmus)* Correctly filter refunds for deposit transactions ([#2330](https://github.com/bluealloy/revm/pull/2330))
+
+### Other
+
+- Remove LATEST variant from SpecId enum ([#2299](https://github.com/bluealloy/revm/pull/2299))
+
+## [1.0.0](https://github.com/bluealloy/revm/compare/op-revm-v1.0.0-alpha.6...op-revm-v1.0.0) - 2025-03-24
+
+### Other
+
+- *(op-precompiles)* Add test for checking that op default precompiles is updated ([#2291](https://github.com/bluealloy/revm/pull/2291))
+- *(op-precompiles)* Add missing g2 add tests ([#2253](https://github.com/bluealloy/revm/pull/2253))
+
 ## [1.0.0-alpha.6](https://github.com/bluealloy/revm/compare/op-revm-v1.0.0-alpha.5...op-revm-v1.0.0-alpha.6) - 2025-03-21
 
 ### Added
