@@ -17,7 +17,7 @@ pub use subroutine_stack::{SubRoutineImpl, SubRoutineReturnFrame};
 
 // imports
 use crate::{
-    interpreter_types::*, Gas, Host, Instruction, InstructionResult, InstructionTable,
+    interpreter_types::*, CallInput, Gas, Host, Instruction, InstructionResult, InstructionTable,
     InterpreterAction,
 };
 use bytecode::Bytecode;
@@ -86,7 +86,7 @@ impl Default for Interpreter<EthInterpreter> {
             InputsImpl {
                 target_address: Address::ZERO,
                 caller_address: Address::ZERO,
-                input: Bytes::default(),
+                input: CallInput::default(),
                 call_value: U256::ZERO,
             },
             false,
@@ -115,7 +115,6 @@ impl<EXT> InterpreterTypes for EthInterpreter<EXT> {
     type Output = InterpreterAction;
 }
 
-// TODO InterpreterAction should be replaces with InterpreterTypes::Output.
 impl<IW: InterpreterTypes> Interpreter<IW> {
     /// Executes the instruction at the current instruction pointer.
     ///
@@ -150,7 +149,7 @@ impl<IW: InterpreterTypes> Interpreter<IW> {
     pub fn take_next_action(&mut self) -> InterpreterAction {
         // Return next action if it is some.
         let action = self.control.take_next_action();
-        if action.is_some() {
+        if action != InterpreterAction::None {
             return action;
         }
         // If not, return action without output as it is a halt.
@@ -223,6 +222,28 @@ impl InterpreterResult {
     }
 }
 
+// Special implementation for types where Output can be created from InterpreterAction
+impl<IW: InterpreterTypes> Interpreter<IW>
+where
+    IW::Output: From<InterpreterAction>,
+{
+    /// Takes the next action from the control and returns it as the specific Output type.
+    #[inline]
+    pub fn take_next_action_as_output(&mut self) -> IW::Output {
+        From::from(self.take_next_action())
+    }
+
+    /// Executes the interpreter until it returns or stops, returning the specific Output type.
+    #[inline]
+    pub fn run_plain_as_output<H: Host + ?Sized>(
+        &mut self,
+        instruction_table: &InstructionTable<IW, H>,
+        host: &mut H,
+    ) -> IW::Output {
+        From::from(self.run_plain(instruction_table, host))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -239,7 +260,7 @@ mod tests {
             InputsImpl {
                 target_address: Address::ZERO,
                 caller_address: Address::ZERO,
-                input: Bytes::default(),
+                input: CallInput::Bytes(Bytes::default()),
                 call_value: U256::ZERO,
             },
             false,
