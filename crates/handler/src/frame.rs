@@ -24,7 +24,7 @@ use interpreter::{
 };
 use primitives::{
     constants::CALL_STACK_LIMIT,
-    hardfork::SpecId::{self, HOMESTEAD, LONDON, OSAKA, SPURIOUS_DRAGON},
+    hardfork::SpecId::{self, HOMESTEAD, LONDON, SPURIOUS_DRAGON},
 };
 use primitives::{keccak256, Address, Bytes, B256, U256};
 use state::Bytecode;
@@ -208,6 +208,7 @@ where
         let interpreter_input = InputsImpl {
             target_address: inputs.target_address,
             caller_address: inputs.caller,
+            bytecode_address: Some(inputs.bytecode_address),
             input: inputs.input.clone(),
             call_value: inputs.value.get(),
         };
@@ -313,9 +314,10 @@ where
         }
 
         // Prague EOF
-        if spec.is_enabled_in(OSAKA) && inputs.init_code.starts_with(&EOF_MAGIC_BYTES) {
-            return return_error(InstructionResult::CreateInitCodeStartingEF00);
-        }
+        // TODO(EOF)
+        // if spec.is_enabled_in(OSAKA) && inputs.init_code.starts_with(&EOF_MAGIC_BYTES) {
+        //     return return_error(InstructionResult::CreateInitCodeStartingEF00);
+        // }
 
         // Fetch balance of caller.
         let caller_balance = context
@@ -371,6 +373,7 @@ where
         let interpreter_input = InputsImpl {
             target_address: created_address,
             caller_address: inputs.caller,
+            bytecode_address: None,
             input: CallInput::Bytes(Bytes::new()),
             call_value: inputs.value,
         };
@@ -486,6 +489,7 @@ where
         let interpreter_input = InputsImpl {
             target_address: created_address,
             caller_address: inputs.caller,
+            bytecode_address: None,
             input,
             call_value: inputs.value,
         };
