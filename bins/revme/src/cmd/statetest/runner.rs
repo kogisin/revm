@@ -259,9 +259,9 @@ pub fn execute_test_suite(
         cfg.chain_id = 1;
 
         // Block env
-        block.number = unit.env.current_number.try_into().unwrap_or(u64::MAX);
+        block.number = unit.env.current_number;
         block.beneficiary = unit.env.current_coinbase;
-        block.timestamp = unit.env.current_timestamp.try_into().unwrap_or(u64::MAX);
+        block.timestamp = unit.env.current_timestamp;
         block.gas_limit = unit.env.current_gas_limit.try_into().unwrap_or(u64::MAX);
         block.basefee = unit
             .env
@@ -312,6 +312,13 @@ pub fn execute_test_suite(
             }
 
             cfg.spec = spec_name.to_spec_id();
+
+            // set default max blobs number to be 9 for prague
+            if cfg.spec.is_enabled_in(SpecId::PRAGUE) {
+                cfg.set_blob_max_count(9);
+            } else {
+                cfg.set_blob_max_count(6);
+            }
 
             // EIP-4844
             if let Some(current_excess_blob_gas) = unit.env.current_excess_blob_gas {
@@ -410,12 +417,12 @@ pub fn execute_test_suite(
                     let mut evm = evm_context.build_mainnet_with_inspector(
                         TracerEip3155::buffered(stderr()).without_summary(),
                     );
-                    let res = evm.inspect_replay_commit();
+                    let res = evm.inspect_tx_commit(&tx);
                     let db = evm.ctx.journaled_state.database;
                     (db, res)
                 } else {
                     let mut evm = evm_context.build_mainnet();
-                    let res = evm.replay_commit();
+                    let res = evm.transact_commit(&tx);
                     let db = evm.ctx.journaled_state.database;
                     (db, res)
                 };
@@ -465,7 +472,7 @@ pub fn execute_test_suite(
                         TracerEip3155::buffered(stderr()).without_summary(),
                     );
 
-                let _ = evm.inspect_replay_commit();
+                let _ = evm.inspect_tx_commit(&tx);
 
                 println!("\nExecution result: {exec_result:#?}");
                 println!("\nExpected exception: {:?}", test.expect_exception);
