@@ -219,11 +219,11 @@ where
     INTR: InterpreterTypes<Stack: StackTr + CloneStack>,
 {
     fn initialize_interp(&mut self, interp: &mut Interpreter<INTR>, _: &mut CTX) {
-        self.gas_inspector.initialize_interp(interp.control.gas());
+        self.gas_inspector.initialize_interp(&interp.gas);
     }
 
     fn step(&mut self, interp: &mut Interpreter<INTR>, _: &mut CTX) {
-        self.gas_inspector.step(interp.control.gas());
+        self.gas_inspector.step(&interp.gas);
         self.stack.clear();
         interp.stack.clone_into(&mut self.stack);
         self.memory = if self.include_memory {
@@ -246,12 +246,12 @@ where
         };
         self.opcode = interp.bytecode.opcode();
         self.mem_size = interp.memory.size();
-        self.gas = interp.control.gas().remaining();
-        self.refunded = interp.control.gas().refunded();
+        self.gas = interp.gas.remaining();
+        self.refunded = interp.gas.refunded();
     }
 
     fn step_end(&mut self, interp: &mut Interpreter<INTR>, context: &mut CTX) {
-        self.gas_inspector.step_end(interp.control.gas_mut());
+        self.gas_inspector.step_end(&mut interp.gas);
         if self.skip {
             self.skip = false;
             return;
@@ -264,15 +264,19 @@ where
             gas: self.gas,
             gas_cost: self.gas_inspector.last_gas_cost(),
             stack: &self.stack,
-            depth: context.journal().depth() as u64,
+            depth: context.journal_mut().depth() as u64,
             function_depth: self.function_depth,
             return_data: "0x",
             refund: self.refunded as u64,
             mem_size: self.mem_size as u64,
 
             op_name: OpCode::new(self.opcode).map(|i| i.as_str()),
-            error: (!interp.control.instruction_result().is_ok())
-                .then(|| format!("{:?}", interp.control.instruction_result())),
+            error: interp
+                .bytecode
+                .action()
+                .as_ref()
+                .and_then(|a| a.instruction_result())
+                .map(|ir| format!("{:?}", ir)),
             memory: self.memory.take(),
             storage: None,
             return_stack: None,
@@ -283,7 +287,7 @@ where
     fn call_end(&mut self, context: &mut CTX, _: &CallInputs, outcome: &mut CallOutcome) {
         self.gas_inspector.call_end(outcome);
 
-        if context.journal().depth() == 0 {
+        if context.journal_mut().depth() == 0 {
             self.print_summary(&outcome.result, context);
             let _ = self.output.flush();
             // Clear the state if we are at the top level.
@@ -294,7 +298,7 @@ where
     fn create_end(&mut self, context: &mut CTX, _: &CreateInputs, outcome: &mut CreateOutcome) {
         self.gas_inspector.create_end(outcome);
 
-        if context.journal().depth() == 0 {
+        if context.journal_mut().depth() == 0 {
             self.print_summary(&outcome.result, context);
             let _ = self.output.flush();
             // Clear the state if we are at the top level.
@@ -310,7 +314,7 @@ where
     ) {
         self.gas_inspector.create_end(outcome);
 
-        if context.journal().depth() == 0 {
+        if context.journal_mut().depth() == 0 {
             self.print_summary(&outcome.result, context);
             let _ = self.output.flush();
             // Clear the state if we are at the top level.

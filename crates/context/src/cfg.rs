@@ -8,12 +8,16 @@ use primitives::{eip170::MAX_CODE_SIZE, hardfork::SpecId};
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct CfgEnv<SPEC = SpecId> {
-    /// Chain ID of the EVM
-    ///
-    /// `chain_id` will be compared to the transaction's Chain ID.
+    /// Chain ID of the EVM. Used in CHAINID opcode and transaction's chain ID check.
     ///
     /// Chain ID is introduced EIP-155.
     pub chain_id: u64,
+
+    /// Whether to check the transaction's chain ID.
+    ///
+    /// If set to `false`, the transaction's chain ID check will be skipped.
+    pub tx_chain_id_check: bool,
+
     /// Specification for EVM represent the hardfork
     pub spec: SPEC,
     /// If some it will effects EIP-170: Contract code size limit.
@@ -28,6 +32,14 @@ pub struct CfgEnv<SPEC = SpecId> {
     ///
     /// If this config is not set, the check for max blobs will be skipped.
     pub blob_max_count: Option<u64>,
+    /// Blob base fee update fraction. EIP-4844 Blob base fee update fraction.
+    ///
+    /// If this config is not set, the blob base fee update fraction will be set to the default value.
+    /// See also [CfgEnv::blob_base_fee_update_fraction].
+    ///
+    /// Default values for Cancun is [`primitives::eip4844::BLOB_BASE_FEE_UPDATE_FRACTION_CANCUN`]
+    /// and for Prague is [`primitives::eip4844::BLOB_BASE_FEE_UPDATE_FRACTION_PRAGUE`].
+    pub blob_base_fee_update_fraction: Option<u64>,
     /// A hard memory limit in bytes beyond which
     /// [OutOfGasError::Memory][context_interface::result::OutOfGasError::Memory] cannot be resized.
     ///
@@ -74,15 +86,36 @@ impl CfgEnv {
     }
 }
 
+impl<SPEC: Into<SpecId> + Copy> CfgEnv<SPEC> {
+    /// Returns the blob base fee update fraction from [CfgEnv::blob_base_fee_update_fraction].
+    ///
+    /// If this field is not set, return the default value for the spec.
+    ///
+    /// Default values for Cancun is [`primitives::eip4844::BLOB_BASE_FEE_UPDATE_FRACTION_CANCUN`]
+    /// and for Prague is [`primitives::eip4844::BLOB_BASE_FEE_UPDATE_FRACTION_PRAGUE`].
+    pub fn blob_base_fee_update_fraction(&mut self) -> u64 {
+        self.blob_base_fee_update_fraction.unwrap_or_else(|| {
+            let spec: SpecId = self.spec.into();
+            if spec.is_enabled_in(SpecId::PRAGUE) {
+                primitives::eip4844::BLOB_BASE_FEE_UPDATE_FRACTION_PRAGUE
+            } else {
+                primitives::eip4844::BLOB_BASE_FEE_UPDATE_FRACTION_CANCUN
+            }
+        })
+    }
+}
+
 impl<SPEC> CfgEnv<SPEC> {
     /// Create new `CfgEnv` with default values and specified spec.
     pub fn new_with_spec(spec: SPEC) -> Self {
         Self {
             chain_id: 1,
+            tx_chain_id_check: false,
             limit_contract_code_size: None,
             spec,
             disable_nonce_check: false,
-            blob_max_count: None, //vec![(SpecId::CANCUN, 3, 6), (SpecId::PRAGUE, 6, 9)],
+            blob_max_count: None,
+            blob_base_fee_update_fraction: None,
             #[cfg(feature = "memory_limit")]
             memory_limit: (1 << 32) - 1,
             #[cfg(feature = "optional_balance_check")]
@@ -102,14 +135,28 @@ impl<SPEC> CfgEnv<SPEC> {
         self
     }
 
+    /// Enables the transaction's chain ID check.
+    pub fn enable_tx_chain_id_check(mut self) -> Self {
+        self.tx_chain_id_check = true;
+        self
+    }
+
+    /// Disables the transaction's chain ID check.
+    pub fn disable_tx_chain_id_check(mut self) -> Self {
+        self.tx_chain_id_check = false;
+        self
+    }
+
     /// Consumes `self` and returns a new `CfgEnv` with the specified spec.
     pub fn with_spec<OSPEC: Into<SpecId>>(self, spec: OSPEC) -> CfgEnv<OSPEC> {
         CfgEnv {
             chain_id: self.chain_id,
+            tx_chain_id_check: self.tx_chain_id_check,
             limit_contract_code_size: self.limit_contract_code_size,
             spec,
             disable_nonce_check: self.disable_nonce_check,
             blob_max_count: self.blob_max_count,
+            blob_base_fee_update_fraction: self.blob_base_fee_update_fraction,
             #[cfg(feature = "memory_limit")]
             memory_limit: self.memory_limit,
             #[cfg(feature = "optional_balance_check")]
@@ -149,6 +196,10 @@ impl<SPEC: Into<SpecId> + Copy> Cfg for CfgEnv<SPEC> {
 
     fn spec(&self) -> Self::Spec {
         self.spec
+    }
+
+    fn tx_chain_id_check(&self) -> bool {
+        self.tx_chain_id_check
     }
 
     #[inline]

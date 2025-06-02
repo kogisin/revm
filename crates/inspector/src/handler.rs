@@ -4,8 +4,8 @@ use handler::{EvmTr, Frame, FrameInitOrResult, FrameOrResult, FrameResult, Handl
 use interpreter::{
     instructions::InstructionTable,
     interpreter_types::{Jumps, LoopControl},
-    FrameInput, Host, InitialAndFloorGas, InstructionResult, Interpreter, InterpreterAction,
-    InterpreterTypes,
+    FrameInput, Host, InitialAndFloorGas, InstructionContext, InstructionResult, Interpreter,
+    InterpreterAction, InterpreterTypes,
 };
 
 use std::{vec, vec::Vec};
@@ -262,17 +262,15 @@ where
     CTX: ContextTr<Journal: JournalExt> + Host,
     IT: InterpreterTypes,
 {
-    interpreter.reset_control();
-
-    let mut log_num = context.journal().logs().len();
+    let mut log_num = context.journal_mut().logs().len();
     // Main loop
-    while interpreter.control.instruction_result().is_continue() {
+    while interpreter.bytecode.is_not_end() {
         // Get current opcode.
         let opcode = interpreter.bytecode.opcode();
 
         // Call Inspector step.
         inspector.step(interpreter, context);
-        if interpreter.control.instruction_result() != InstructionResult::Continue {
+        if interpreter.bytecode.is_end() {
             break;
         }
 
@@ -282,13 +280,17 @@ where
         interpreter.bytecode.relative_jump(1);
 
         // Execute instruction.
-        instructions[opcode as usize](interpreter, context);
+        let instruction_context = InstructionContext {
+            interpreter,
+            host: context,
+        };
+        instructions[opcode as usize](instruction_context);
 
         // check if new log is added
-        let new_log = context.journal().logs().len();
+        let new_log = context.journal_mut().logs().len();
         if log_num < new_log {
             // as there is a change in log number this means new log is added
-            let log = context.journal().logs().last().unwrap().clone();
+            let log = context.journal_mut().logs().last().unwrap().clone();
             inspector.log(interpreter, context, log);
             log_num = new_log;
         }
@@ -297,12 +299,14 @@ where
         inspector.step_end(interpreter, context);
     }
 
+    interpreter.bytecode.revert_to_previous_pointer();
+
     let next_action = interpreter.take_next_action();
 
     // handle selfdestruct
-    if let InterpreterAction::Return { result } = &next_action {
+    if let InterpreterAction::Return(result) = &next_action {
         if result.result == InstructionResult::SelfDestruct {
-            match context.journal().journal().last() {
+            match context.journal_mut().journal().last() {
                 Some(JournalEntry::AccountDestroyed {
                     address,
                     target,
