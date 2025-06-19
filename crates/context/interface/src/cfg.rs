@@ -17,17 +17,26 @@ pub trait Cfg {
     /// Returns whether the transaction's chain ID check is enabled.
     fn tx_chain_id_check(&self) -> bool;
 
+    /// Returns the gas limit cap for the transaction.
+    ///
+    /// Cap is introduced in [`EIP-7825: Transaction Gas Limit Cap`](https://eips.ethereum.org/EIPS/eip-7825)
+    /// with initial cap of 30M gas.
+    ///
+    /// Value before EIP-7825 is `u64::MAX`.
+    fn tx_gas_limit_cap(&self) -> u64;
+
     /// Specification id
     fn spec(&self) -> Self::Spec;
 
-    /// Returns the blob target and max count for the given spec id.
+    /// Returns the maximum number of blobs allowed per transaction.
     /// If it is None, check for max count will be skipped.
-    ///
-    /// EIP-7840: Add blob schedule to execution client configuration files
-    fn blob_max_count(&self) -> Option<u64>;
+    fn max_blobs_per_tx(&self) -> Option<u64>;
 
     /// Returns the maximum code size for the given spec id.
     fn max_code_size(&self) -> usize;
+
+    /// Returns the max initcode size for the given spec id.
+    fn max_initcode_size(&self) -> usize;
 
     /// Returns whether the EIP-3607 (account clearing) is disabled.
     fn is_eip3607_disabled(&self) -> bool;
@@ -43,6 +52,9 @@ pub trait Cfg {
 
     /// Returns whether the base fee check is disabled.
     fn is_base_fee_check_disabled(&self) -> bool;
+
+    /// Returns whether the priority fee check is disabled.
+    fn is_priority_fee_check_disabled(&self) -> bool;
 }
 
 /// What bytecode analysis to perform
@@ -60,10 +72,11 @@ pub enum AnalysisKind {
 pub type TransactTo = TxKind;
 
 /// Create scheme
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Default, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CreateScheme {
     /// Legacy create scheme of `CREATE`
+    #[default]
     Create,
     /// Create scheme of `CREATE2`
     Create2 {

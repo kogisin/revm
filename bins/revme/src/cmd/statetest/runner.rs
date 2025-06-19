@@ -321,9 +321,9 @@ pub fn execute_test_suite(
 
             // set default max blobs number to be 9 for prague
             if cfg.spec.is_enabled_in(SpecId::PRAGUE) {
-                cfg.set_blob_max_count(9);
+                cfg.set_max_blobs_per_tx(9);
             } else {
-                cfg.set_blob_max_count(6);
+                cfg.set_max_blobs_per_tx(6);
             }
 
             // EIP-4844
@@ -382,9 +382,6 @@ pub fn execute_test_suite(
                     .cloned()
                     .flatten()
                     .unwrap_or_default();
-
-                // TODO(EOF)
-                //tx.initcodes = unit.transaction.initcodes.clone().unwrap_or_default();
 
                 tx.authorization_list = unit
                     .transaction

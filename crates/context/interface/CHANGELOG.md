@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0](https://github.com/bluealloy/revm/compare/revm-context-interface-v6.0.0...revm-context-interface-v7.0.0) - 2025-06-19
+
+### Added
+
+- remove EOF ([#2644](https://github.com/bluealloy/revm/pull/2644))
+- configurable contract size limit ([#2611](https://github.com/bluealloy/revm/pull/2611)) ([#2642](https://github.com/bluealloy/revm/pull/2642))
+- *(precompile)* rug/gmp-based modexp ([#2596](https://github.com/bluealloy/revm/pull/2596))
+- change blob_max_count to max_blobs_per_tx ([#2608](https://github.com/bluealloy/revm/pull/2608))
+- add optional priority fee check configuration ([#2588](https://github.com/bluealloy/revm/pull/2588))
+
+### Other
+
+- re-use frame allocation ([#2636](https://github.com/bluealloy/revm/pull/2636))
+- store coinbase address separately to avoid cloning warm addresses in the common case ([#2634](https://github.com/bluealloy/revm/pull/2634))
+- rename `transact` methods ([#2616](https://github.com/bluealloy/revm/pull/2616))
+
+## [6.0.0](https://github.com/bluealloy/revm/compare/revm-context-interface-v5.0.0...revm-context-interface-v6.0.0) - 2025-06-06
+
+### Added
+
+- *(Osaka)* EIP-7825 tx limit cap ([#2575](https://github.com/bluealloy/revm/pull/2575))
+- Config blob basefee fraction ([#2551](https://github.com/bluealloy/revm/pull/2551))
+- expand timestamp/block_number to u256 ([#2546](https://github.com/bluealloy/revm/pull/2546))
+- transact multi tx ([#2517](https://github.com/bluealloy/revm/pull/2517))
+
+### Other
+
+- support functions for eip7918 ([#2579](https://github.com/bluealloy/revm/pull/2579))
+- *(docs)* add lints to database-interface and op-revm crates ([#2568](https://github.com/bluealloy/revm/pull/2568))
+- *(docs)* context crate lints ([#2565](https://github.com/bluealloy/revm/pull/2565))
+- ContextTr rm *_ref, and add *_mut fn ([#2560](https://github.com/bluealloy/revm/pull/2560))
+- *(cfg)* add tx_chain_id_check fields. Optimize effective gas cost calc ([#2557](https://github.com/bluealloy/revm/pull/2557))
+
 ## [5.0.0](https://github.com/bluealloy/revm/compare/revm-context-interface-v4.1.0...revm-context-interface-v5.0.0) - 2025-05-22
 
 ### Added

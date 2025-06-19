@@ -1,3 +1,4 @@
+//! Common test utilities used to compare execution results against testdata.
 #![allow(dead_code)]
 
 use revm::{
@@ -13,7 +14,7 @@ pub(crate) const TESTS_TESTDATA: &str = "tests/testdata";
 #[cfg(not(feature = "serde"))]
 pub(crate) fn compare_or_save_testdata<HaltReasonTy>(
     _filename: &str,
-    _output: &ResultAndState<ExecutionResult<HaltReasonTy>, EvmState>,
+    _output: &ResultAndState<HaltReasonTy>,
 ) {
     // serde needs to be enabled to use this function
 }
@@ -42,7 +43,7 @@ pub(crate) fn compare_or_save_testdata<HaltReasonTy>(
 #[cfg(feature = "serde")]
 pub(crate) fn compare_or_save_testdata<HaltReasonTy>(
     filename: &str,
-    output: &ResultAndState<ExecutionResult<HaltReasonTy>, EvmState>,
+    output: &ResultAndState<HaltReasonTy>,
 ) where
     HaltReasonTy: serde::Serialize + for<'a> serde::Deserialize<'a> + PartialEq,
 {

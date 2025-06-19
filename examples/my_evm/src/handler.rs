@@ -2,16 +2,26 @@ use revm::{
     context::result::{EVMError, HaltReason, InvalidTransaction},
     context_interface::{ContextTr, JournalTr},
     handler::{
-        instructions::InstructionProvider, EthFrame, EvmTr, FrameResult, Handler,
+        evm::FrameTr, instructions::InstructionProvider, EvmTr, FrameResult, Handler,
         PrecompileProvider,
     },
     inspector::{Inspector, InspectorEvmTr, InspectorHandler},
-    interpreter::{interpreter::EthInterpreter, InterpreterResult},
+    interpreter::{interpreter::EthInterpreter, interpreter_action::FrameInit, InterpreterResult},
     state::EvmState,
     Database,
 };
 
+/// Custom handler for MyEvm that defines transaction execution behavior.
+///
+/// This handler demonstrates how to customize EVM execution by implementing
+/// the Handler trait. It can be extended to add custom validation, modify
+/// gas calculations, or implement protocol-specific behavior while maintaining
+/// compatibility with the standard EVM execution flow.
+#[derive(Debug)]
 pub struct MyHandler<EVM> {
+    /// Phantom data to maintain the EVM type parameter.
+    /// This field exists solely to satisfy Rust's type system requirements
+    /// for generic parameters that aren't directly used in the struct fields.
     pub _phantom: core::marker::PhantomData<EVM>,
 }
 
@@ -32,15 +42,11 @@ where
             Context = EVM::Context,
             InterpreterTypes = EthInterpreter,
         >,
+        Frame: FrameTr<FrameResult = FrameResult, FrameInit = FrameInit>,
     >,
 {
     type Evm = EVM;
     type Error = EVMError<<<EVM::Context as ContextTr>::Db as Database>::Error, InvalidTransaction>;
-    type Frame = EthFrame<
-        EVM,
-        EVMError<<<EVM::Context as ContextTr>::Db as Database>::Error, InvalidTransaction>,
-        <EVM::Instructions as InstructionProvider>::InterpreterTypes,
-    >;
     type HaltReason = HaltReason;
 
     fn reward_beneficiary(

@@ -2,28 +2,38 @@ mod call_inputs;
 mod call_outcome;
 mod create_inputs;
 mod create_outcome;
-mod eof_create_inputs;
 
 pub use call_inputs::{CallInput, CallInputs, CallScheme, CallValue};
 pub use call_outcome::CallOutcome;
 pub use create_inputs::CreateInputs;
 pub use create_outcome::CreateOutcome;
-pub use eof_create_inputs::{EOFCreateInputs, EOFCreateKind};
 use primitives::Bytes;
 
-use crate::{Gas, InstructionResult, InterpreterResult};
+use crate::{Gas, InstructionResult, InterpreterResult, SharedMemory};
 use std::boxed::Box;
 
+/// Input data for creating a new execution frame.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FrameInput {
-    /// `CALL`, `CALLCODE`, `DELEGATECALL`, `STATICCALL`
-    /// or EOF `EXTCALL`, `EXTDELEGATECALL`, `EXTSTATICCALL` instruction called.
+    /// No input data (empty frame)
+    Empty,
+    /// `CALL`, `CALLCODE`, `DELEGATECALL`, `STATICCALL` instruction called.
     Call(Box<CallInputs>),
     /// `CREATE` or `CREATE2` instruction called.
     Create(Box<CreateInputs>),
-    /// EOF `CREATE` instruction called.
-    EOFCreate(Box<EOFCreateInputs>),
+}
+
+/// Initialization data for creating a new execution frame.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FrameInit {
+    /// depth of the next frame
+    pub depth: usize,
+    /// shared memory set to this shared context
+    pub memory: SharedMemory,
+    /// Data needed as input for Interpreter.
+    pub frame_input: FrameInput,
 }
 
 impl AsMut<Self> for FrameInput {
@@ -32,6 +42,7 @@ impl AsMut<Self> for FrameInput {
     }
 }
 
+/// Actions that the interpreter can request from the host environment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum InterpreterAction {

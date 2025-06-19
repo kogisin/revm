@@ -1,3 +1,5 @@
+//! Contains the `[flz_compress_len]` function.
+
 /// Returns the length of the data after compression through FastLZ, based on
 /// <https://github.com/Vectorized/solady/blob/5315d937d79b335c668896d7533ac603adac5315/js/solady.js>
 ///
@@ -180,7 +182,7 @@ mod tests {
         tx.base.gas_limit = 3_000_000;
         tx.enveloped_tx = Some(Bytes::default());
 
-        let result = evm.transact(tx).unwrap();
+        let result = evm.transact_one(tx).unwrap();
 
         let output = result.output().unwrap();
         let evm_val = FastLz::fastLzCall::abi_decode_returns(output).unwrap();

@@ -9,7 +9,7 @@ use context_interface::{
 };
 use core::fmt::Debug;
 use database_interface::{BENCH_CALLER, BENCH_TARGET};
-use primitives::{Address, Bytes, TxKind, B256, U256};
+use primitives::{eip7825, Address, Bytes, TxKind, B256, U256};
 use std::{vec, vec::Vec};
 
 /// The Transaction Environment is a struct that contains all fields that can be found in all Ethereum transaction,
@@ -86,11 +86,6 @@ pub struct TxEnv {
     ///
     /// [EIP-7702]: https://eips.ethereum.org/EIPS/eip-7702
     pub authorization_list: Vec<Either<SignedAuthorization, RecoveredAuthorization>>,
-    // TODO(EOF)
-    // /// List of initcodes that is part of Initcode transaction.
-    // ///
-    // /// [EIP-7873](https://eips.ethereum.org/EIPS/eip-7873)
-    // pub initcodes: Vec<Bytes>,
 }
 
 impl Default for TxEnv {
@@ -150,17 +145,6 @@ impl TxEnv {
                 return Err(DeriveTxTypeError::MissingTargetForEip7702);
             }
         }
-
-        // TODO(EOF)
-        // if !self.initcodes.is_empty() {
-        //     if let TxKind::Call(_) = self.kind {
-        //         self.tx_type = TransactionType::Eip7873 as u8;
-        //         return Ok(());
-        //     } else {
-        //         return Err(DeriveTxTypeError::MissingTargetForEip7873);
-        //     }
-        // }
-
         Ok(())
     }
 
@@ -242,11 +226,6 @@ impl Transaction for TxEnv {
     fn max_priority_fee_per_gas(&self) -> Option<u128> {
         self.gas_priority_fee
     }
-
-    // TODO(EOF)
-    // fn initcodes(&self) -> &[Bytes] {
-    //     &self.initcodes
-    // }
 }
 
 /// Builder for constructing [`TxEnv`] instances
@@ -274,7 +253,7 @@ impl TxEnvBuilder {
         Self {
             tx_type: None,
             caller: Address::default(),
-            gas_limit: 30_000_000,
+            gas_limit: eip7825::TX_GAS_LIMIT_CAP,
             gas_price: 0,
             kind: TxKind::Call(Address::default()),
             value: U256::ZERO,
@@ -588,6 +567,47 @@ impl TxEnv {
     /// Create a new builder for constructing a [`TxEnv`]
     pub fn builder() -> TxEnvBuilder {
         TxEnvBuilder::new()
+    }
+
+    /// Create a new builder for constructing a [`TxEnv`] with benchmark-specific values.
+    pub fn builder_for_bench() -> TxEnvBuilder {
+        TxEnv::new_bench().modify()
+    }
+
+    /// Modify the [`TxEnv`] by using builder pattern.
+    pub fn modify(self) -> TxEnvBuilder {
+        let TxEnv {
+            tx_type,
+            caller,
+            gas_limit,
+            gas_price,
+            kind,
+            value,
+            data,
+            nonce,
+            chain_id,
+            access_list,
+            gas_priority_fee,
+            blob_hashes,
+            max_fee_per_blob_gas,
+            authorization_list,
+        } = self;
+
+        TxEnvBuilder::new()
+            .tx_type(Some(tx_type))
+            .caller(caller)
+            .gas_limit(gas_limit)
+            .gas_price(gas_price)
+            .kind(kind)
+            .value(value)
+            .data(data)
+            .nonce(nonce)
+            .chain_id(chain_id)
+            .access_list(access_list)
+            .gas_priority_fee(gas_priority_fee)
+            .blob_hashes(blob_hashes)
+            .max_fee_per_blob_gas(max_fee_per_blob_gas)
+            .authorization_list(authorization_list)
     }
 }
 

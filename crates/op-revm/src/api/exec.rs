@@ -1,9 +1,10 @@
+//! Implementation of the [`ExecuteEvm`] trait for the [`OpEvm`].
 use crate::{
     evm::OpEvm, handler::OpHandler, transaction::OpTxTr, L1BlockInfo, OpHaltReason, OpSpecId,
     OpTransactionError,
 };
 use revm::{
-    context::{result::ResultAndState, ContextSetters},
+    context::{result::ExecResultAndState, ContextSetters},
     context_interface::{
         result::{EVMError, ExecutionResult},
         Cfg, ContextTr, Database, JournalTr,
@@ -19,7 +20,7 @@ use revm::{
     DatabaseCommit, ExecuteCommitEvm, ExecuteEvm,
 };
 
-// Type alias for Optimism context
+/// Type alias for Optimism context
 pub trait OpContextTr:
     ContextTr<
     Journal: JournalTr<State = EvmState>,
@@ -41,7 +42,7 @@ impl<T> OpContextTr for T where
 }
 
 /// Type alias for the error type of the OpEvm.
-type OpError<CTX> = EVMError<<<CTX as ContextTr>::Db as Database>::Error, OpTransactionError>;
+pub type OpError<CTX> = EVMError<<<CTX as ContextTr>::Db as Database>::Error, OpTransactionError>;
 
 impl<CTX, INSP, PRECOMPILE> ExecuteEvm
     for OpEvm<CTX, INSP, EthInstructions<EthInterpreter, CTX>, PRECOMPILE>
@@ -59,9 +60,9 @@ where
         self.0.ctx.set_block(block);
     }
 
-    fn transact(&mut self, tx: Self::Tx) -> Result<Self::ExecutionResult, Self::Error> {
+    fn transact_one(&mut self, tx: Self::Tx) -> Result<Self::ExecutionResult, Self::Error> {
         self.0.ctx.set_tx(tx);
-        let mut h = OpHandler::<_, _, EthFrame<_, _, _>>::new();
+        let mut h = OpHandler::<_, _, EthFrame<EthInterpreter>>::new();
         h.run(self)
     }
 
@@ -71,11 +72,11 @@ where
 
     fn replay(
         &mut self,
-    ) -> Result<ResultAndState<Self::ExecutionResult, Self::State>, Self::Error> {
-        let mut h = OpHandler::<_, _, EthFrame<_, _, _>>::new();
+    ) -> Result<ExecResultAndState<Self::ExecutionResult, Self::State>, Self::Error> {
+        let mut h = OpHandler::<_, _, EthFrame<EthInterpreter>>::new();
         h.run(self).map(|result| {
             let state = self.finalize();
-            ResultAndState::new(result, state)
+            ExecResultAndState::new(result, state)
         })
     }
 }
@@ -104,9 +105,9 @@ where
         self.0.inspector = inspector;
     }
 
-    fn inspect_tx(&mut self, tx: Self::Tx) -> Result<Self::ExecutionResult, Self::Error> {
+    fn inspect_one_tx(&mut self, tx: Self::Tx) -> Result<Self::ExecutionResult, Self::Error> {
         self.0.ctx.set_tx(tx);
-        let mut h = OpHandler::<_, _, EthFrame<_, _, _>>::new();
+        let mut h = OpHandler::<_, _, EthFrame<EthInterpreter>>::new();
         h.inspect_run(self)
     }
 }
@@ -126,15 +127,18 @@ where
     CTX: OpContextTr<Tx: SystemCallTx> + ContextSetters,
     PRECOMPILE: PrecompileProvider<CTX, Output = InterpreterResult>,
 {
-    fn transact_system_call(
+    fn transact_system_call_with_caller(
         &mut self,
+        caller: Address,
         system_contract_address: Address,
         data: Bytes,
     ) -> Result<Self::ExecutionResult, Self::Error> {
-        self.0
-            .ctx
-            .set_tx(CTX::Tx::new_system_tx(data, system_contract_address));
-        let mut h = OpHandler::<_, _, EthFrame<_, _, _>>::new();
+        self.0.ctx.set_tx(CTX::Tx::new_system_tx_with_caller(
+            caller,
+            system_contract_address,
+            data,
+        ));
+        let mut h = OpHandler::<_, _, EthFrame<EthInterpreter>>::new();
         h.run_system_call(self)
     }
 }

@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0](https://github.com/bluealloy/revm/compare/revm-inspector-v6.0.0...revm-inspector-v7.0.0) - 2025-06-19
+
+### Added
+
+- remove EOF ([#2644](https://github.com/bluealloy/revm/pull/2644))
+- *(precompile)* rug/gmp-based modexp ([#2596](https://github.com/bluealloy/revm/pull/2596))
+- add Inspector implementation for either::Either ([#2614](https://github.com/bluealloy/revm/pull/2614))
+- *(InspectEvm)* add inspect_finalize method for tx+inspector with state ([#2593](https://github.com/bluealloy/revm/pull/2593))
+
+### Other
+
+- lints handler inspector interpreter ([#2646](https://github.com/bluealloy/revm/pull/2646))
+- re-use frame allocation ([#2636](https://github.com/bluealloy/revm/pull/2636))
+- rename `transact` methods ([#2616](https://github.com/bluealloy/revm/pull/2616))
+
+## [6.0.0](https://github.com/bluealloy/revm/compare/revm-inspector-v5.0.1...revm-inspector-v6.0.0) - 2025-06-06
+
+### Added
+
+- transact multi tx ([#2517](https://github.com/bluealloy/revm/pull/2517))
+
+### Other
+
+- tag v75 revm v24.0.1 ([#2563](https://github.com/bluealloy/revm/pull/2563)) ([#2589](https://github.com/bluealloy/revm/pull/2589))
+- ContextTr rm *_ref, and add *_mut fn ([#2560](https://github.com/bluealloy/revm/pull/2560))
+- simplify Interpreter loop ([#2544](https://github.com/bluealloy/revm/pull/2544))
+- Add InstructionContext instead of Host and Interpreter ([#2548](https://github.com/bluealloy/revm/pull/2548))
+
+## [5.0.1](https://github.com/bluealloy/revm/compare/revm-inspector-v5.0.0...revm-inspector-v5.0.1) - 2025-05-31
+
+### Other
+
+- updated the following local packages: revm-context, revm-handler
+
 ## [5.0.0](https://github.com/bluealloy/revm/compare/revm-inspector-v4.1.0...revm-inspector-v5.0.0) - 2025-05-22
 
 ### Added

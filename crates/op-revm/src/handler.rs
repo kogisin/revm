@@ -13,23 +13,30 @@ use revm::{
         Block, Cfg, ContextTr, JournalTr, Transaction,
     },
     handler::{
+        evm::FrameTr,
         handler::EvmTrError,
         post_execution::{self, reimburse_caller},
         pre_execution::validate_account_nonce_and_code,
-        EvmTr, Frame, FrameResult, Handler, MainnetHandler,
+        EthFrame, EvmTr, FrameResult, Handler, MainnetHandler,
     },
-    inspector::{Inspector, InspectorEvmTr, InspectorFrame, InspectorHandler},
-    interpreter::{interpreter::EthInterpreter, FrameInput, Gas},
+    inspector::{Inspector, InspectorEvmTr, InspectorHandler},
+    interpreter::{interpreter::EthInterpreter, interpreter_action::FrameInit, Gas},
     primitives::{hardfork::SpecId, U256},
 };
 use std::boxed::Box;
 
+/// Optimism handler extends the [`Handler`] with Optimism specific logic.
+#[derive(Debug, Clone)]
 pub struct OpHandler<EVM, ERROR, FRAME> {
+    /// Mainnet handler allows us to use functions from the mainnet handler inside optimism handler.
+    /// So we dont duplicate the logic
     pub mainnet: MainnetHandler<EVM, ERROR, FRAME>,
+    /// Phantom data to avoid type inference issues.
     pub _phantom: core::marker::PhantomData<(EVM, ERROR, FRAME)>,
 }
 
 impl<EVM, ERROR, FRAME> OpHandler<EVM, ERROR, FRAME> {
+    /// Create a new Optimism handler.
     pub fn new() -> Self {
         Self {
             mainnet: MainnetHandler::default(),
@@ -44,7 +51,11 @@ impl<EVM, ERROR, FRAME> Default for OpHandler<EVM, ERROR, FRAME> {
     }
 }
 
+/// Trait to check if the error is a transaction error.
+///
+/// Used in cache_error handler to catch deposit transaction that was halted.
 pub trait IsTxError {
+    /// Check if the error is a transaction error.
     fn is_tx_error(&self) -> bool;
 }
 
@@ -56,15 +67,14 @@ impl<DB, TX> IsTxError for EVMError<DB, TX> {
 
 impl<EVM, ERROR, FRAME> Handler for OpHandler<EVM, ERROR, FRAME>
 where
-    EVM: EvmTr<Context: OpContextTr>,
+    EVM: EvmTr<Context: OpContextTr, Frame = FRAME>,
     ERROR: EvmTrError<EVM> + From<OpTransactionError> + FromStringError + IsTxError,
     // TODO `FrameResult` should be a generic trait.
     // TODO `FrameInit` should be a generic.
-    FRAME: Frame<Evm = EVM, Error = ERROR, FrameResult = FrameResult, FrameInit = FrameInput>,
+    FRAME: FrameTr<FrameResult = FrameResult, FrameInit = FrameInit>,
 {
     type Evm = EVM;
     type Error = ERROR;
-    type Frame = FRAME;
     type HaltReason = OpHaltReason;
 
     fn validate_env(&self, evm: &mut Self::Evm) -> Result<(), Self::Error> {
@@ -209,7 +219,7 @@ where
     fn last_frame_result(
         &mut self,
         evm: &mut Self::Evm,
-        frame_result: &mut <Self::Frame as Frame>::FrameResult,
+        frame_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
     ) -> Result<(), Self::Error> {
         let ctx = evm.ctx();
         let tx = ctx.tx();
@@ -275,7 +285,7 @@ where
     fn reimburse_caller(
         &self,
         evm: &mut Self::Evm,
-        exec_result: &mut <Self::Frame as Frame>::FrameResult,
+        frame_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
     ) -> Result<(), Self::Error> {
         let mut additional_refund = U256::ZERO;
 
@@ -284,19 +294,19 @@ where
             additional_refund = evm
                 .ctx()
                 .chain()
-                .operator_fee_refund(exec_result.gas(), spec);
+                .operator_fee_refund(frame_result.gas(), spec);
         }
 
-        reimburse_caller(evm.ctx(), exec_result.gas_mut(), additional_refund).map_err(From::from)
+        reimburse_caller(evm.ctx(), frame_result.gas_mut(), additional_refund).map_err(From::from)
     }
 
     fn refund(
         &self,
         evm: &mut Self::Evm,
-        exec_result: &mut <Self::Frame as Frame>::FrameResult,
+        frame_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
         eip7702_refund: i64,
     ) {
-        exec_result.gas_mut().record_refund(eip7702_refund);
+        frame_result.gas_mut().record_refund(eip7702_refund);
 
         let is_deposit = evm.ctx().tx().tx_type() == DEPOSIT_TRANSACTION_TYPE;
         let is_regolith = evm.ctx().cfg().spec().is_enabled_in(OpSpecId::REGOLITH);
@@ -304,7 +314,7 @@ where
         // Prior to Regolith, deposit transactions did not receive gas refunds.
         let is_gas_refund_disabled = is_deposit && !is_regolith;
         if !is_gas_refund_disabled {
-            exec_result.gas_mut().set_final_refund(
+            frame_result.gas_mut().set_final_refund(
                 evm.ctx()
                     .cfg()
                     .spec()
@@ -317,7 +327,7 @@ where
     fn reward_beneficiary(
         &self,
         evm: &mut Self::Evm,
-        exec_result: &mut <Self::Frame as Frame>::FrameResult,
+        frame_result: &mut <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
     ) -> Result<(), Self::Error> {
         let is_deposit = evm.ctx().tx().tx_type() == DEPOSIT_TRANSACTION_TYPE;
 
@@ -326,7 +336,7 @@ where
             return Ok(());
         }
 
-        self.mainnet.reward_beneficiary(evm, exec_result)?;
+        self.mainnet.reward_beneficiary(evm, frame_result)?;
         let basefee = evm.ctx().block().basefee() as u128;
 
         // If the transaction is not a deposit transaction, fees are paid out
@@ -347,7 +357,7 @@ where
         if spec.is_enabled_in(OpSpecId::ISTHMUS) {
             operator_fee_cost = l1_block_info.operator_fee_charge(
                 enveloped_tx,
-                U256::from(exec_result.gas().spent() - exec_result.gas().refunded() as u64),
+                U256::from(frame_result.gas().spent() - frame_result.gas().refunded() as u64),
             );
         }
         // Send the L1 cost of the transaction to the L1 Fee Vault.
@@ -357,7 +367,7 @@ where
         ctx.journal_mut().balance_incr(
             BASE_FEE_RECIPIENT,
             U256::from(basefee.saturating_mul(
-                (exec_result.gas().spent() - exec_result.gas().refunded() as u64) as u128,
+                (frame_result.gas().spent() - frame_result.gas().refunded() as u64) as u128,
             )),
         )?;
 
@@ -371,7 +381,7 @@ where
     fn execution_result(
         &mut self,
         evm: &mut Self::Evm,
-        result: <Self::Frame as Frame>::FrameResult,
+        frame_result: <<Self::Evm as EvmTr>::Frame as FrameTr>::FrameResult,
     ) -> Result<ExecutionResult<Self::HaltReason>, Self::Error> {
         match core::mem::replace(evm.ctx().error(), Ok(())) {
             Err(ContextError::Db(e)) => return Err(e.into()),
@@ -380,7 +390,7 @@ where
         }
 
         let exec_result =
-            post_execution::output(evm.ctx(), result).map_haltreason(OpHaltReason::Base);
+            post_execution::output(evm.ctx(), frame_result).map_haltreason(OpHaltReason::Base);
 
         if exec_result.is_halt() {
             // Post-regolith, if the transaction is a deposit transaction and it halts,
@@ -429,6 +439,8 @@ where
 
             let old_balance = acc.info.balance;
 
+            // decrement transaction id as it was incremented when we discarded the tx.
+            acc.transaction_id -= acc.transaction_id;
             acc.info.nonce = acc.info.nonce.saturating_add(1);
             acc.info.balance = acc
                 .info
@@ -466,22 +478,14 @@ where
     }
 }
 
-impl<EVM, ERROR, FRAME> InspectorHandler for OpHandler<EVM, ERROR, FRAME>
+impl<EVM, ERROR> InspectorHandler for OpHandler<EVM, ERROR, EthFrame<EthInterpreter>>
 where
     EVM: InspectorEvmTr<
         Context: OpContextTr,
+        Frame = EthFrame<EthInterpreter>,
         Inspector: Inspector<<<Self as Handler>::Evm as EvmTr>::Context, EthInterpreter>,
     >,
     ERROR: EvmTrError<EVM> + From<OpTransactionError> + FromStringError + IsTxError,
-    // TODO `FrameResult` should be a generic trait.
-    // TODO `FrameInit` should be a generic.
-    FRAME: InspectorFrame<
-        Evm = EVM,
-        Error = ERROR,
-        FrameResult = FrameResult,
-        FrameInit = FrameInput,
-        IT = EthInterpreter,
-    >,
 {
     type IT = EthInterpreter;
 }
@@ -528,7 +532,8 @@ mod tests {
             0..0,
         ));
 
-        let mut handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let mut handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
 
         handler
             .last_frame_result(&mut evm, &mut exec_result)
@@ -652,7 +657,8 @@ mod tests {
 
         let mut evm = ctx.build_op();
 
-        let handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
         handler
             .validate_against_state_and_deduct_caller(&mut evm)
             .unwrap();
@@ -692,7 +698,8 @@ mod tests {
 
         let mut evm = ctx.build_op();
 
-        let handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
         handler
             .validate_against_state_and_deduct_caller(&mut evm)
             .unwrap();
@@ -758,7 +765,8 @@ mod tests {
 
         assert_ne!(evm.ctx().chain().l2_block, BLOCK_NUM);
 
-        let handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
         handler
             .validate_against_state_and_deduct_caller(&mut evm)
             .unwrap();
@@ -807,7 +815,8 @@ mod tests {
             });
 
         let mut evm = ctx.build_op();
-        let handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
 
         // l1block cost is 1048 fee.
         handler
@@ -844,7 +853,8 @@ mod tests {
             });
 
         let mut evm = ctx.build_op();
-        let handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
 
         // operator fee cost is operator_fee_scalar * gas_limit / 1e6 + operator_fee_constant
         // 10_000_000 * 10 / 1_000_000 + 50 = 150
@@ -883,7 +893,8 @@ mod tests {
 
         // l1block cost is 1048 fee.
         let mut evm = ctx.build_op();
-        let handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
 
         // l1block cost is 1048 fee.
         assert_eq!(
@@ -909,7 +920,8 @@ mod tests {
             .modify_cfg_chained(|cfg| cfg.spec = OpSpecId::REGOLITH);
 
         let mut evm = ctx.build_op();
-        let handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
 
         assert_eq!(
             handler.validate_env(&mut evm),
@@ -935,7 +947,8 @@ mod tests {
             .modify_cfg_chained(|cfg| cfg.spec = OpSpecId::REGOLITH);
 
         let mut evm = ctx.build_op();
-        let handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
 
         assert!(handler.validate_env(&mut evm).is_ok());
     }
@@ -951,7 +964,8 @@ mod tests {
             .modify_cfg_chained(|cfg| cfg.spec = OpSpecId::REGOLITH);
 
         let mut evm = ctx.build_op();
-        let handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
 
         // Nonce and balance checks should be skipped for deposit transactions.
         assert!(handler.validate_env(&mut evm).is_ok());
@@ -966,7 +980,8 @@ mod tests {
             .modify_cfg_chained(|cfg| cfg.spec = OpSpecId::REGOLITH);
 
         let mut evm = ctx.build_op();
-        let mut handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let mut handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
 
         assert_eq!(
             handler.execution_result(
@@ -1008,7 +1023,8 @@ mod tests {
             .modify_cfg_chained(|cfg| cfg.spec = OpSpecId::ISTHMUS);
 
         let mut evm = ctx.build_op();
-        let handler = OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<_, _, _>>::new();
+        let handler =
+            OpHandler::<_, EVMError<_, OpTransactionError>, EthFrame<EthInterpreter>>::new();
 
         // Set the operator fee scalar & constant to non-zero values in the L1 block info.
         evm.ctx().chain.operator_fee_scalar = Some(U256::from(OP_FEE_MOCK_PARAM));

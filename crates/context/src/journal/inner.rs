@@ -1,4 +1,6 @@
 //! Module containing the [`JournalInner`] that is part of [`crate::Journal`].
+use crate::entry::SelfdestructionRevertStatus;
+
 use super::JournalEntryTr;
 use bytecode::Bytecode;
 use context_interface::{
@@ -58,6 +60,8 @@ pub struct JournalInner<ENTRY> {
     /// Note that this not include newly loaded accounts, account and storage
     /// is considered warm if it is found in the `State`.
     pub warm_preloaded_addresses: HashSet<Address>,
+    /// Warm coinbase address, stored separately to avoid cloning preloaded addresses.
+    pub warm_coinbase_address: Option<Address>,
     /// Precompile addresses
     pub precompiles: HashSet<Address>,
 }
@@ -84,6 +88,7 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
             spec: SpecId::default(),
             warm_preloaded_addresses: HashSet::default(),
             precompiles: HashSet::default(),
+            warm_coinbase_address: None,
         }
     }
 
@@ -113,6 +118,7 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
             spec,
             warm_preloaded_addresses,
             precompiles,
+            warm_coinbase_address,
         } = self;
         // Spec precompiles and state are not changed. It is always set again execution.
         let _ = spec;
@@ -124,10 +130,12 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
         // Do nothing with journal history so we can skip cloning present journal.
         journal.clear();
 
+        // Clear coinbase address warming for next tx
+        *warm_coinbase_address = None;
         // Load precompiles into warm_preloaded_addresses.
         // TODO for precompiles we can use max transaction_id so they are always touched warm loaded.
         // at least after state clear EIP.
-        warm_preloaded_addresses.clone_from(precompiles);
+        reset_preloaded_addresses(warm_preloaded_addresses, precompiles);
         // increment transaction id.
         *transaction_id += 1;
         logs.clear();
@@ -145,6 +153,7 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
             transaction_id,
             spec,
             warm_preloaded_addresses,
+            warm_coinbase_address,
             precompiles,
         } = self;
 
@@ -157,7 +166,9 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
         *depth = 0;
         logs.clear();
         *transaction_id += 1;
-        warm_preloaded_addresses.clone_from(precompiles);
+        // Clear coinbase address warming for next tx
+        *warm_coinbase_address = None;
+        reset_preloaded_addresses(warm_preloaded_addresses, precompiles);
     }
 
     /// Take the [`EvmState`] and clears the journal by resetting it to initial state.
@@ -177,12 +188,15 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
             transaction_id,
             spec,
             warm_preloaded_addresses,
+            warm_coinbase_address,
             precompiles,
         } = self;
         // Spec is not changed. And it is always set again in execution.
         let _ = spec;
+        // Clear coinbase address warming for next tx
+        *warm_coinbase_address = None;
         // Load precompiles into warm_preloaded_addresses.
-        warm_preloaded_addresses.clone_from(precompiles);
+        reset_preloaded_addresses(warm_preloaded_addresses, precompiles);
 
         let state = mem::take(state);
         logs.clear();
@@ -419,10 +433,10 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
         }
 
         // set account status to create.
-        target_acc.mark_created();
+        let is_created_globaly = target_acc.mark_created_locally();
 
         // this entry will revert set nonce.
-        last_journal.push(ENTRY::account_created(target_address));
+        last_journal.push(ENTRY::account_created(target_address, is_created_globaly));
         target_acc.info.code = None;
         // EIP-161: State trie clearing (invariant-preserving alternative)
         if spec_id.is_enabled_in(SPURIOUS_DRAGON) {
@@ -520,17 +534,25 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
 
         let acc = self.state.get_mut(&address).unwrap();
         let balance = acc.info.balance;
-        let previously_destroyed = acc.is_selfdestructed();
+
+        let destroyed_status = if !acc.is_selfdestructed() {
+            SelfdestructionRevertStatus::GloballySelfdestroyed
+        } else if !acc.is_selfdestructed_locally() {
+            SelfdestructionRevertStatus::LocallySelfdestroyed
+        } else {
+            SelfdestructionRevertStatus::RepeatedSelfdestruction
+        };
+
         let is_cancun_enabled = spec.is_enabled_in(CANCUN);
 
         // EIP-6780 (Cancun hard-fork): selfdestruct only if contract is created in the same tx
-        let journal_entry = if acc.is_created() || !is_cancun_enabled {
-            acc.mark_selfdestruct();
+        let journal_entry = if acc.is_created_locally() || !is_cancun_enabled {
+            acc.mark_selfdestructed_locally();
             acc.info.balance = U256::ZERO;
             Some(ENTRY::account_destroyed(
                 address,
                 target,
-                previously_destroyed,
+                destroyed_status,
                 balance,
             ))
         } else if address != target {
@@ -552,7 +574,8 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
             data: SelfDestructResult {
                 had_value: !balance.is_zero(),
                 target_exists: !is_empty,
-                previously_destroyed,
+                previously_destroyed: destroyed_status
+                    == SelfdestructionRevertStatus::RepeatedSelfdestruction,
             },
             is_cold,
         })
@@ -631,7 +654,18 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
         let load = match self.state.entry(address) {
             Entry::Occupied(entry) => {
                 let account = entry.into_mut();
-                let is_cold = account.mark_warm();
+                let is_cold = account.mark_warm_with_transaction_id(self.transaction_id);
+                // if it is colad loaded we need to clear local flags that can interact with selfdestruct
+                if is_cold {
+                    // if it is cold loaded and we have selfdestructed locally it means that
+                    // account was selfdestructed in previous transaction and we need to clear its information and storage.
+                    if account.is_selfdestructed_locally() {
+                        account.selfdestruct();
+                        account.unmark_selfdestructed_locally();
+                    }
+                    // unmark locally created
+                    account.unmark_created_locally();
+                }
                 StateLoad {
                     data: account,
                     is_cold,
@@ -644,8 +678,9 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
                     Account::new_not_existing(self.transaction_id)
                 };
 
-                // Precompiles among some other account are warm loaded so we need to take that into account
-                let is_cold = !self.warm_preloaded_addresses.contains(&address);
+                // Precompiles among some other account(coinbase included) are warm loaded so we need to take that into account
+                let is_cold = !self.warm_preloaded_addresses.contains(&address)
+                    && self.warm_coinbase_address.as_ref() != Some(&address);
 
                 StateLoad {
                     data: vac.insert(account),
@@ -653,6 +688,7 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
                 }
             }
         };
+
         // journal loading of cold account.
         if load.is_cold {
             self.journal.push(ENTRY::account_warmed(address));
@@ -844,4 +880,17 @@ pub fn sload_with_account<DB: Database, ENTRY: JournalEntryTr>(
     }
 
     Ok(StateLoad::new(value, is_cold))
+}
+
+fn reset_preloaded_addresses(
+    warm_preloaded_addresses: &mut HashSet<Address>,
+    precompiles: &HashSet<Address>,
+) {
+    // `warm_preloaded_addresses` is append-only, and is initialized with `precompiles`.
+    // Avoid unnecessarily cloning if it hasn't changed.
+    if warm_preloaded_addresses.len() == precompiles.len() {
+        debug_assert_eq!(warm_preloaded_addresses, precompiles);
+        return;
+    }
+    warm_preloaded_addresses.clone_from(precompiles);
 }
