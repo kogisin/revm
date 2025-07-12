@@ -1,17 +1,31 @@
 use bitvec::vec::BitVec;
+use core::hash::{Hash, Hasher};
 use once_cell::race::OnceBox;
 use primitives::hex;
 use std::{fmt::Debug, sync::Arc};
 
 /// A table of valid `jump` destinations. Cheap to clone and memory efficient, one bit per opcode.
-#[derive(Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Clone, Eq, Ord, PartialOrd)]
 pub struct JumpTable {
     /// Actual bit vec
-    pub table: Arc<BitVec<u8>>,
+    table: Arc<BitVec<u8>>,
     /// Fast pointer that skips Arc overhead
     table_ptr: *const u8,
     /// Number of bits in the table
-    pub len: usize,
+    len: usize,
+}
+
+impl PartialEq for JumpTable {
+    fn eq(&self, other: &Self) -> bool {
+        self.table.eq(&other.table) && self.len.eq(&other.len)
+    }
+}
+
+impl Hash for JumpTable {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.table.hash(state);
+        self.len.hash(state);
+    }
 }
 
 #[cfg(feature = "serde")]
@@ -75,6 +89,18 @@ impl JumpTable {
     #[inline]
     pub fn as_slice(&self) -> &[u8] {
         self.table.as_raw_slice()
+    }
+
+    /// Gets the length of the jump map.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns true if the jump map is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     /// Constructs a jump map from raw bytes and length.
@@ -204,10 +230,10 @@ mod bench_is_valid {
         let ns_per_op = duration.as_nanos() as f64 / ITERATIONS as f64;
         let ops_per_sec = ITERATIONS as f64 / duration.as_secs_f64();
 
-        println!("{} Performance:", name);
-        println!("  Time per op: {:.2} ns", ns_per_op);
-        println!("  Ops per sec: {:.0}", ops_per_sec);
-        println!("  True count: {}", count);
+        println!("{name} Performance:");
+        println!("  Time per op: {ns_per_op:.2} ns");
+        println!("  Ops per sec: {ops_per_sec:.0}");
+        println!("  True count: {count}");
         println!();
 
         std::hint::black_box(count);

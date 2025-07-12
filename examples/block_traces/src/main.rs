@@ -1,4 +1,6 @@
-//! Optimism-specific constants, types, and helpers.
+//! Example that show how to replay a block and trace the execution of each transaction.
+//!
+//! The EIP3155 trace of each transaction is saved into file `traces/{tx_number}.json`.
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use alloy_consensus::Transaction;
@@ -119,24 +121,24 @@ async fn main() -> anyhow::Result<()> {
         // Construct the file writer to write the trace to
         let tx_number = tx.transaction_index.unwrap_or_default();
 
-        let tx = TxEnv {
-            caller: tx.inner.signer(),
-            gas_limit: tx.gas_limit(),
-            gas_price: tx.gas_price().unwrap_or(tx.inner.max_fee_per_gas()),
-            value: tx.value(),
-            data: tx.input().to_owned(),
-            gas_priority_fee: tx.max_priority_fee_per_gas(),
-            chain_id: Some(chain_id),
-            nonce: tx.nonce(),
-            access_list: tx.access_list().cloned().unwrap_or_default(),
-            kind: match tx.to() {
+        let tx = TxEnv::builder()
+            .caller(tx.inner.signer())
+            .gas_limit(tx.gas_limit())
+            .gas_price(tx.gas_price().unwrap_or(tx.inner.max_fee_per_gas()))
+            .value(tx.value())
+            .data(tx.input().to_owned())
+            .gas_priority_fee(tx.max_priority_fee_per_gas())
+            .chain_id(Some(chain_id))
+            .nonce(tx.nonce())
+            .access_list(tx.access_list().cloned().unwrap_or_default())
+            .kind(match tx.to() {
                 Some(to_address) => TxKind::Call(to_address),
                 None => TxKind::Create,
-            },
-            ..Default::default()
-        };
+            })
+            .build()
+            .unwrap();
 
-        let file_name = format!("traces/{}.json", tx_number);
+        let file_name = format!("traces/{tx_number}.json");
         let write = OpenOptions::new()
             .write(true)
             .create(true)
@@ -151,7 +153,7 @@ async fn main() -> anyhow::Result<()> {
         let res: Result<_, _> = evm.inspect_one(tx, TracerEip3155::new(Box::new(writer)));
 
         if let Err(error) = res {
-            println!("Got error: {:?}", error);
+            println!("Got error: {error:?}");
         }
 
         // Flush the file writer

@@ -87,13 +87,13 @@ impl Cmd {
             .with_db(db)
             .build_mainnet_with_inspector(TracerEip3155::new(Box::new(std::io::stdout())));
 
-        let tx = TxEnv {
-            caller: BENCH_CALLER,
-            kind: TxKind::Call(BENCH_TARGET),
-            data: input,
-            nonce,
-            ..Default::default()
-        };
+        let tx = TxEnv::builder()
+            .caller(BENCH_CALLER)
+            .kind(TxKind::Call(BENCH_TARGET))
+            .data(input)
+            .nonce(nonce)
+            .build()
+            .unwrap();
 
         if self.bench {
             let mut criterion = criterion::Criterion::default()
@@ -124,10 +124,10 @@ impl Cmd {
         let time = time.elapsed();
 
         if self.state {
-            println!("State: {:#?}", state);
+            println!("State: {state:#?}");
         }
 
-        println!("Elapsed: {:?}", time);
+        println!("Elapsed: {time:?}");
         Ok(())
     }
 }
