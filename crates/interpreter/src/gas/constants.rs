@@ -23,8 +23,8 @@ pub const MID: u64 = 8;
 pub const HIGH: u64 = 10;
 /// Gas cost for JUMPDEST instruction.
 pub const JUMPDEST: u64 = 1;
-/// Gas cost for SELFDESTRUCT instruction.
-pub const SELFDESTRUCT: i64 = 24000;
+/// Gas cost for REFUND SELFDESTRUCT instruction.
+pub const SELFDESTRUCT_REFUND: i64 = 24000;
 /// Gas cost for CREATE instruction.
 pub const CREATE: u64 = 32000;
 /// Additional gas cost when a call transfers value.
@@ -72,7 +72,6 @@ pub const NON_ZERO_BYTE_DATA_COST_ISTANBUL: u64 = 16;
 /// The multiplier for a non zero byte in calldata adjusted by [EIP-2028](https://eips.ethereum.org/EIPS/eip-2028).
 pub const NON_ZERO_BYTE_MULTIPLIER_ISTANBUL: u64 =
     NON_ZERO_BYTE_DATA_COST_ISTANBUL / STANDARD_TOKEN_COST;
-// The cost floor per token as defined by [EIP-2028](https://eips.ethereum.org/EIPS/eip-2028).
 /// The cost floor per token as defined by EIP-2028.
 pub const TOTAL_COST_FLOOR_PER_TOKEN: u64 = 10;
 
