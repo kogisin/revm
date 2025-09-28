@@ -3,7 +3,7 @@ use core::{
     cell::{Ref, RefCell},
     ops::Range,
 };
-use std::{rc::Rc, vec::Vec};
+use std::{rc::Rc, string::String, vec::Vec};
 
 /// Non-empty, item-pooling Vec.
 #[derive(Debug, Clone)]
@@ -18,11 +18,24 @@ impl<T> Default for FrameStack<T> {
     }
 }
 
+impl<T: Default> FrameStack<T> {
+    /// Creates a new stack with preallocated items by calling `T::default()` `len` times.
+    /// Index will still be `None` until `end_init` is called.
+    pub fn new_prealloc(len: usize) -> Self {
+        let mut stack = Vec::with_capacity(len);
+        for _ in 0..len {
+            stack.push(T::default());
+        }
+        Self { stack, index: None }
+    }
+}
+
 impl<T> FrameStack<T> {
     /// Creates a new, empty stack. It must be initialized with init before use.
     pub fn new() -> Self {
+        // Init N amount of frames to allocate the stack.
         Self {
-            stack: Vec::with_capacity(4),
+            stack: Vec::with_capacity(8),
             index: None,
         }
     }
@@ -32,7 +45,7 @@ impl<T> FrameStack<T> {
     pub fn start_init(&mut self) -> OutFrame<'_, T> {
         self.index = None;
         if self.stack.is_empty() {
-            self.stack.reserve(1);
+            self.stack.reserve(8);
         }
         self.out_frame_at(0)
     }
@@ -67,11 +80,16 @@ impl<T> FrameStack<T> {
     pub unsafe fn push(&mut self, token: FrameToken) {
         token.assert();
         let index = self.index.as_mut().unwrap();
-        if *index + 1 == self.stack.len() {
-            unsafe { self.stack.set_len(self.stack.len() + 1) };
-            self.stack.reserve(1);
-        }
         *index += 1;
+        // capacity of stack is incremented in `get_next`
+        debug_assert!(
+            *index < self.stack.capacity(),
+            "Stack capacity is not enough for index"
+        );
+        // If the index is the last one, we need to increase the length.
+        if *index == self.stack.len() {
+            unsafe { self.stack.set_len(self.stack.len() + 1) };
+        }
     }
 
     /// Clears the stack by setting the index to 0.
@@ -90,13 +108,20 @@ impl<T> FrameStack<T> {
     /// Returns the current item.
     #[inline]
     pub fn get(&mut self) -> &mut T {
-        debug_assert!(self.stack.capacity() > self.index.unwrap() + 1);
+        debug_assert!(
+            self.stack.capacity() > self.index.unwrap(),
+            "Stack capacity is not enough for index"
+        );
         unsafe { &mut *self.stack.as_mut_ptr().add(self.index.unwrap()) }
     }
 
     /// Get next uninitialized item.
     #[inline]
     pub fn get_next(&mut self) -> OutFrame<'_, T> {
+        if self.index.unwrap() + 1 == self.stack.capacity() {
+            // allocate 8 more items
+            self.stack.reserve(8);
+        }
         self.out_frame_at(self.index.unwrap() + 1)
     }
 
@@ -202,6 +227,17 @@ pub trait LocalContextTr {
 
     /// Clear the local context.
     fn clear(&mut self);
+
+    /// Set the error message for a precompile error, if any.
+    ///
+    /// This is used to bubble up precompile error messages when the
+    /// transaction directly targets a precompile (depth == 1).
+    fn set_precompile_error_context(&mut self, _output: String);
+
+    /// Take and clear the precompile error context, if present.
+    ///
+    /// Returns `Some(String)` if a precompile error message was recorded.
+    fn take_precompile_error_context(&mut self) -> Option<String>;
 }
 
 #[cfg(test)]
@@ -210,9 +246,11 @@ mod tests {
 
     #[test]
     fn frame_stack() {
-        let mut stack = FrameStack::new();
+        let mut stack = FrameStack::new_prealloc(1);
         let mut frame = stack.start_init();
-        frame.get(|| 1);
+        // it is already initialized to zero.
+        *frame.get(|| 2) += 1;
+
         let token = frame.consume();
         unsafe { stack.end_init(token) };
 
